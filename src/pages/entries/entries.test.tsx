@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { toast } from 'sonner';
 import { financeFixture } from '../../fixtures/finance';
+import { ROW_EXIT_MS } from '../../components/ui/AnimatedRow';
 import { AppToaster } from '../../components/ui/Toaster';
 import { HOLD_MS } from '../../components/ui/HoldToDelete';
+import { mockMatchMedia } from '../../test/mockMatchMedia';
 import type { CreateTransactionInput, FinanceData, Transaction } from '../../types/finance';
 
 // Vaul calls setPointerCapture/releasePointerCapture on pointerDown inside BottomSheet; jsdom omits them.
@@ -111,6 +113,7 @@ afterEach(() => {
   cleanup();
   toast.dismiss();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   setStateHook = null;
 });
 
@@ -303,6 +306,9 @@ describe('<EntriesPage>', () => {
     act(() => {
       vi.advanceTimersByTime(HOLD_MS);
     });
+    act(() => {
+      vi.advanceTimersByTime(ROW_EXIT_MS);
+    });
     vi.useRealTimers();
 
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith('tx-nov-tea'));
@@ -390,5 +396,200 @@ describe('<EntriesPage>', () => {
       start: '2026-02-28',
       end: '2026-03-30',
     });
+  });
+
+  it('filters transactions by budget pot on mobile (375px) and updates daily totals', () => {
+    mockMatchMedia(375);
+    const extra: Transaction[] = [
+      {
+        id: 'tx-nov-essential',
+        date: '2026-11-12',
+        amount: 10_000,
+        direction: 'out',
+        sourceId: 'src-bank',
+        potId: 'pot-essential',
+        category: 'bills',
+        note: 'ค่าไฟ',
+      },
+    ];
+    render(<StatefulHarness initial={makeFixtureClone(extra)} />);
+
+    const potList = screen.getByRole('tablist', { name: 'กรองก้อนเงิน' });
+    expect(within(potList).getAllByRole('tab').map((t) => t.textContent)).toEqual([
+      'ทุกก้อน',
+      'ใช้ตามใจ',
+      'ใช้จ่ายจำเป็น',
+    ]);
+
+    fireEvent.click(within(potList).getByRole('tab', { name: 'ใช้จ่ายจำเป็น' }));
+    expect(screen.getByText('ค่าไฟ')).toBeTruthy();
+    expect(screen.queryByText('ชานม')).toBeNull();
+    expect(screen.getByTestId('day-total-2026-11-12').textContent).toBe('฿100.00');
+
+    fireEvent.click(within(potList).getByRole('tab', { name: 'ทุกก้อน' }));
+    expect(screen.getByText('ชานม')).toBeTruthy();
+    expect(screen.getByTestId('day-total-2026-11-12').textContent).toBe('฿185.00');
+  });
+
+  it('renders sticky 240px SelectField sidebar on desktop (1280px), chip tabs on 375px/768px, and shares filter state across resize', () => {
+    const mm = mockMatchMedia(375);
+    const extra: Transaction[] = [
+      {
+        id: 'tx-nov-essential',
+        date: '2026-11-12',
+        amount: 10_000,
+        direction: 'out',
+        sourceId: 'src-card',
+        potId: 'pot-essential',
+        category: 'bills',
+        note: 'ค่าเน็ต',
+      },
+    ];
+    const { container } = render(<StatefulHarness initial={makeFixtureClone(extra)} />);
+
+    // 375px: segmented tablists, no <select> filter controls
+    expect(screen.getByRole('tablist', { name: 'รอบเงินเดือน' })).toBeTruthy();
+    expect(screen.getByRole('tablist', { name: 'กรองก้อนเงิน' })).toBeTruthy();
+    expect(screen.getByRole('tablist', { name: 'กรองช่องทาง' })).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: 'รอบเงินเดือน' })).toBeNull();
+
+    // Select a filter on mobile, then resize to tablet (768px) -> keeps chip tabs
+    fireEvent.click(within(screen.getByRole('tablist', { name: 'กรองก้อนเงิน' })).getByRole('tab', { name: 'ใช้จ่ายจำเป็น' }));
+    expect(screen.getByText('ค่าเน็ต')).toBeTruthy();
+    expect(screen.queryByText('ชานม')).toBeNull();
+
+    act(() => {
+      mm.setWidth(768);
+    });
+    expect(screen.getByRole('tablist', { name: 'กรองช่องทาง' })).toBeTruthy();
+    expect(screen.getByText('ค่าเน็ต')).toBeTruthy();
+
+    // Resize to desktop (1280px): 2-column grid with sticky 240px aside and SelectFields (single DOM set)
+    act(() => {
+      mm.setWidth(1280);
+    });
+
+    const layoutGrid = container.querySelector('.lg\\:grid-cols-\\[240px_minmax\\(0\\,1fr\\)\\]');
+    expect(layoutGrid).not.toBeNull();
+    const filterAside = screen.getByRole('complementary', { name: 'ตัวกรองรายการ' });
+    expect(filterAside.className).toContain('lg:sticky');
+    expect(screen.queryByRole('tablist', { name: 'กรองช่องทาง' })).toBeNull();
+
+    const periodSelect = screen.getByLabelText('รอบเงินเดือน') as HTMLSelectElement;
+    const potSelect = screen.getByLabelText('ก้อนเงิน') as HTMLSelectElement;
+    const sourceSelect = screen.getByLabelText('ช่องทาง') as HTMLSelectElement;
+
+    // Preserved pot filter state across breakpoint change
+    expect(potSelect.value).toBe('pot-essential');
+    expect(screen.getByText('ค่าเน็ต')).toBeTruthy();
+    expect(screen.queryByText('ชานม')).toBeNull();
+
+    // Change filters via desktop SelectFields
+    fireEvent.change(potSelect, { target: { value: 'all' } });
+    expect(screen.getByText('ชานม')).toBeTruthy();
+
+    fireEvent.change(sourceSelect, { target: { value: 'src-card' } });
+    expect(screen.getByText('ค่าเน็ต')).toBeTruthy();
+    expect(screen.queryByText('ชานม')).toBeNull();
+
+    fireEvent.change(periodSelect, { target: { value: '1' } });
+    expect(screen.getByText('ยังไม่มีรายการในรอบนี้')).toBeTruthy();
+  });
+
+  it('animates only newly added and deleted rows, with zero row animation on initial load, filter change, or resize', async () => {
+    const mm = mockMatchMedia(375);
+    const { container } = render(<StatefulHarness initial={makeFixtureClone()} today="2026-11-15" />);
+
+    // Initial load: no row-enter or row-exit
+    expect(container.querySelectorAll('.row-enter').length).toBe(0);
+    expect(container.querySelectorAll('.row-exit').length).toBe(0);
+
+    // Add new entry -> only that row has .row-enter
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการ' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('จำนวนเงิน'), { target: { value: '50' } });
+    fireEvent.change(within(dialog).getByLabelText('โน้ต'), { target: { value: 'น้ำเปล่า' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'บันทึก' }));
+
+    await waitFor(() => expect(screen.getByText('น้ำเปล่า')).toBeTruthy());
+    expect(container.querySelectorAll('.row-enter').length).toBe(1);
+    expect(container.querySelector('.row-enter')?.textContent).toContain('น้ำเปล่า');
+
+    // Change filter and switch back -> zero .row-enter animations
+    const sourceList = screen.getByRole('tablist', { name: 'กรองช่องทาง' });
+    fireEvent.click(within(sourceList).getByRole('tab', { name: 'บัตรเครดิต' }));
+    expect(container.querySelectorAll('.row-enter').length).toBe(0);
+
+    fireEvent.click(within(sourceList).getByRole('tab', { name: 'ทั้งหมด' }));
+    expect(screen.getByText('น้ำเปล่า')).toBeTruthy();
+    expect(container.querySelectorAll('.row-enter').length).toBe(0);
+
+    // Resize to desktop -> zero .row-enter or .row-exit
+    act(() => {
+      mm.setWidth(1280);
+    });
+    expect(container.querySelectorAll('.row-enter').length).toBe(0);
+    expect(container.querySelectorAll('.row-exit').length).toBe(0);
+
+    // Delete via HoldToDelete -> plays .row-exit for ROW_EXIT_MS before removal
+    fireEvent.click(screen.getByText('น้ำเปล่า'));
+    const editDialog = screen.getByRole('dialog');
+    const deleteBtn = within(editDialog).getByRole('button', { name: 'กดค้างเพื่อลบ' });
+
+    vi.useFakeTimers();
+    fireEvent.pointerDown(deleteBtn);
+    act(() => {
+      vi.advanceTimersByTime(HOLD_MS);
+    });
+
+    // Immediately after confirm, row is leaving (not yet removed from data)
+    expect(container.querySelectorAll('.row-exit').length).toBe(1);
+    expect(container.querySelector('.row-exit')?.getAttribute('data-leaving')).toBe('true');
+    expect(deleteSpy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(ROW_EXIT_MS);
+    });
+    vi.useRealTimers();
+
+    await waitFor(() => expect(deleteSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText('น้ำเปล่า')).toBeNull());
+  });
+
+  it('shows error toasts with repo error messages when save, update, or delete fails', async () => {
+    createSpy.mockRejectedValueOnce(new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'));
+    updateSpy.mockRejectedValueOnce(new Error('อัปเดตไม่สำเร็จจากฐานข้อมูล'));
+    deleteSpy.mockRejectedValueOnce(new Error('สิทธิ์ไม่เพียงพอ'));
+
+    render(<StatefulHarness initial={makeFixtureClone()} today="2026-11-15" />);
+
+    // 1. Create failure -> error toast shown, dialog stays open
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการ' }));
+    const addDialog = screen.getByRole('dialog');
+    fireEvent.change(within(addDialog).getByLabelText('จำนวนเงิน'), { target: { value: '120' } });
+    fireEvent.click(within(addDialog).getByRole('button', { name: 'บันทึก' }));
+
+    expect(await screen.findByText(/เชื่อมต่อเซิร์ฟเวอร์ไม่ได้/)).toBeTruthy();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'ปิด' }));
+
+    // 2. Update failure -> error toast shown
+    fireEvent.click(screen.getByText('ชานม'));
+    const editDialog = screen.getByRole('dialog');
+    fireEvent.change(within(editDialog).getByLabelText('โน้ต'), { target: { value: 'ชานมใหม่' } });
+    fireEvent.click(within(editDialog).getByRole('button', { name: 'บันทึก' }));
+
+    expect(await screen.findByText(/อัปเดตไม่สำเร็จจากฐานข้อมูล/)).toBeTruthy();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+
+    // 3. Delete failure -> error toast shown, row stays visible (not stuck in leaving)
+    const deleteBtn = within(screen.getByRole('dialog')).getByRole('button', { name: 'กดค้างเพื่อลบ' });
+    fireEvent.keyDown(deleteBtn, { key: 'Enter' });
+    fireEvent.keyUp(deleteBtn, { key: 'Enter' });
+    fireEvent.keyDown(deleteBtn, { key: 'Enter' });
+
+    expect(await screen.findByText(/สิทธิ์ไม่เพียงพอ/)).toBeTruthy();
+    expect(screen.getByText('ชานม')).toBeTruthy();
+    expect(document.querySelectorAll('.row-exit').length).toBe(0);
   });
 });
