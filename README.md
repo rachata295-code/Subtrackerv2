@@ -108,3 +108,18 @@ of the first screen is empty ground either side of it. The inspector reports tha
 It is not a FAIL today and nothing is silenced. If a newer inspector promotes the side-space or column rule to a
 FAIL, the accepted reason is that this empty ground is the intended phone-column layout, not a layout error; pass
 `--allow <rule>` for that one rule and nothing else.
+
+## Migration
+
+One-time import from SubTracker v1 CSV exports lives in [`scripts/migrate-v1/`](scripts/migrate-v1/README.md) (Node 22+, dry-run by default, `--apply` inserts via anon key + RLS using owner credentials from env).
+
+```sh
+# 1. Place the 4 CSV exports from Supabase v1 in scripts/migrate-v1/input/ (git-ignored)
+# 2. Preview row counts and before/after totals (dry-run):
+node scripts/migrate-v1/migrate.mjs --airpods-count 10 --airpods-first 2026-09-01
+
+# 3. Apply idempotently once verified (reads VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, MIGRATE_EMAIL, MIGRATE_PASSWORD):
+node scripts/migrate-v1/migrate.mjs --apply --airpods-count 10 --airpods-first 2026-09-01
+```
+
+See [scripts/migrate-v1/README.md](scripts/migrate-v1/README.md) for the full export guide, mapping rules, and idempotency details.
