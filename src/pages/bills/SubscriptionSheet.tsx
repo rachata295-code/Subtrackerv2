@@ -9,7 +9,13 @@ import { notify } from '../../components/ui/Toaster';
 import { useDeleteSubscription, useUpsertSubscription } from '../../hooks/useFinance';
 import type { FinanceData, Subscription } from '../../types/finance';
 import { SelectField } from '../../components/ui/SelectField';
-import { THAI_MONTHS_FULL, bahtToSatang, resolvePlayPot, satangToBaht } from './billsLogic';
+import {
+  THAI_MONTHS_FULL,
+  bahtToSatang,
+  formatRepoError,
+  resolvePlayPot,
+  satangToBaht,
+} from './billsLogic';
 
 export interface SubscriptionSheetProps {
   open: boolean;
@@ -123,18 +129,22 @@ function SubscriptionForm({
       if (initial) {
         notify('แก้ไขสมาชิกแล้ว', {
           undo: () => {
-            void upsertSubscription.mutateAsync(initial);
+            void upsertSubscription.mutateAsync(initial).catch((err) => {
+              notify(formatRepoError('เลิกทำไม่สำเร็จ', err, 'เลิกทำไม่สำเร็จ'));
+            });
           },
         });
       } else {
         notify('บันทึกสมาชิกแล้ว', {
           undo: () => {
-            void deleteSubscription.mutateAsync(saved.id);
+            void deleteSubscription.mutateAsync(saved.id).catch((err) => {
+              notify(formatRepoError('เลิกทำไม่สำเร็จ', err, 'เลิกทำไม่สำเร็จ'));
+            });
           },
         });
       }
-    } catch {
-      notify('บันทึกไม่สำเร็จ กรุณาลองใหม่');
+    } catch (err) {
+      notify(formatRepoError('บันทึกไม่สำเร็จ', err, 'บันทึกไม่สำเร็จ กรุณาลองใหม่'));
     } finally {
       setSaving(false);
     }
@@ -148,11 +158,13 @@ function SubscriptionForm({
       onClose();
       notify('ลบสมาชิกแล้ว', {
         undo: () => {
-          void upsertSubscription.mutateAsync(initial);
+          void upsertSubscription.mutateAsync(initial).catch((err) => {
+            notify(formatRepoError('เลิกทำไม่สำเร็จ', err, 'เลิกทำไม่สำเร็จ'));
+          });
         },
       });
-    } catch {
-      notify('ลบไม่สำเร็จ กรุณาลองใหม่');
+    } catch (err) {
+      notify(formatRepoError('ลบไม่สำเร็จ', err, 'ลบไม่สำเร็จ กรุณาลองใหม่'));
     } finally {
       setSaving(false);
     }

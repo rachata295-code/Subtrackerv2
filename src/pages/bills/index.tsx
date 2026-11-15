@@ -8,6 +8,7 @@ import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { useFinanceData } from '../../hooks/useFinance';
 import type { ISODate, Installment, Subscription } from '../../types/finance';
+import { BillsSummaryCard } from './BillsSummaryCard';
 import { BillsTab } from './BillsTab';
 import { InstallmentSheet } from './InstallmentSheet';
 import { InstallmentsTab } from './InstallmentsTab';
@@ -107,12 +108,32 @@ export default function BillsPage({ today = todayBangkok() }: BillsPageProps) {
           <Card>
             <EmptyState message="ยังไม่มีข้อมูลบิลและรายการผ่อน" />
           </Card>
-        ) : segment === 'bills' ? (
-          <BillsTab data={data} today={today} />
-        ) : segment === 'installments' ? (
-          <InstallmentsTab data={data} today={today} onEdit={openEditInstallment} />
         ) : (
-          <SubscriptionsTab data={data} onEdit={openEditSubscription} />
+          <div
+            data-testid="bills-layout"
+            className="flex flex-col gap-gap lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6"
+          >
+            {/* Mobile (<768px) hides the summary to stay unchanged; tablet shows it above บิล only; desktop pins it right. */}
+            <aside
+              aria-label="สรุปรอบนี้"
+              className={[
+                segment === 'bills' ? 'hidden md:block' : 'hidden lg:block',
+                'lg:sticky lg:top-6 lg:col-start-2 lg:row-start-1',
+              ].join(' ')}
+            >
+              <BillsSummaryCard data={data} today={today} />
+            </aside>
+
+            <div className="min-w-0 lg:col-start-1 lg:row-start-1">
+              {segment === 'bills' ? (
+                <BillsTab data={data} today={today} />
+              ) : segment === 'installments' ? (
+                <InstallmentsTab data={data} today={today} onEdit={openEditInstallment} />
+              ) : (
+                <SubscriptionsTab data={data} onEdit={openEditSubscription} />
+              )}
+            </div>
+          </div>
         )}
       </section>
 

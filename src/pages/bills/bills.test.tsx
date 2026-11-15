@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { toast } from 'sonner';
+import { AppShell } from '../../components/layout/AppShell';
+import { ROW_EXIT_MS } from '../../components/ui/AnimatedRow';
 import { AppToaster } from '../../components/ui/Toaster';
 import { financeFixture } from '../../fixtures/finance';
+import { mockMatchMedia } from '../../test/mockMatchMedia';
 import type {
   BillPayment,
   FinanceData,
@@ -123,6 +127,7 @@ afterEach(() => {
   cleanup();
   toast.dismiss();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   setMockDataState = null;
 });
 
@@ -522,6 +527,294 @@ describe('<BillsPage>', () => {
       mockData = undefined;
       renderPage('2026-11-15');
       expect(screen.getByText(/โหลดข้อมูลบิลไม่สำเร็จ/)).toBeTruthy();
+    });
+  });
+
+  describe('responsive layout (375 / 768 / 1280)', () => {
+    function renderInShell(today: ISODate = '2026-11-15') {
+      return render(
+        <MemoryRouter initialEntries={['/bills']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <AppShell>
+            <StatefulBills today={today} />
+          </AppShell>
+        </MemoryRouter>,
+      );
+    }
+
+    it('at 375px uses mobile shell and hides summary card so mobile layout stays unchanged', () => {
+      mockMatchMedia(375);
+      renderInShell('2026-11-15');
+
+      const layout = screen.getByTestId('bills-layout');
+      expect(layout.className).toContain('flex-col');
+      expect(layout.className).toContain('lg:grid');
+
+      const summaryAside = screen.getByRole('complementary', { name: 'สรุปรอบนี้' });
+      expect(summaryAside.className).toContain('hidden');
+      expect(summaryAside.className).toContain('md:block');
+      expect(screen.queryByRole('button', { name: '+ เพิ่มรายการ' })).toBeNull();
+    });
+
+    it('at 768px keeps single-column layout and places summary card at top only on บิล tab', () => {
+      mockMatchMedia(768);
+      renderInShell('2026-11-15');
+
+      const layout = screen.getByTestId('bills-layout');
+      expect(layout.className).toContain('flex-col');
+
+      const summaryAside = screen.getByRole('complementary', { name: 'สรุปรอบนี้' });
+      expect(summaryAside.className).toContain('hidden');
+      expect(summaryAside.className).toContain('md:block');
+      expect(layout.firstElementChild).toBe(summaryAside);
+
+      // Switching to ผ่อน hides summary card on tablet while keeping it available on lg desktop.
+      fireEvent.click(screen.getByRole('tab', { name: 'ผ่อน' }));
+      expect(summaryAside.className).toContain('hidden');
+      expect(summaryAside.className).toContain('lg:block');
+      expect(summaryAside.className).not.toContain('md:block');
+    });
+
+    it('at 1280px renders SegmentedControl on top, single-row items on left, and 360px summary card on right', () => {
+      mockMatchMedia(1280);
+      renderInShell('2026-11-15');
+
+      expect(screen.getByRole('button', { name: '+ เพิ่มรายการ' })).toBeTruthy();
+
+      const layout = screen.getByTestId('bills-layout');
+      expect(layout.className).toContain('lg:grid');
+      expect(layout.className).toContain('lg:grid-cols-[minmax(0,1fr)_360px]');
+
+      const summary = screen.getByTestId('bills-summary-card');
+      expect(within(summary).getByRole('heading', { name: 'สรุปรอบนี้' })).toBeTruthy();
+      expect(within(summary).getByText('บัตรเครดิต')).toBeTruthy();
+      expect(within(summary).getByText('฿1,077')).toBeTruthy();
+      expect(within(summary).getByText('SPayLater')).toBeTruthy();
+      expect(within(summary).getByText('฿1,381')).toBeTruthy();
+      expect(within(summary).getByTestId('summary-total').textContent).toBe('฿2,458.93');
+      expect(within(summary).getByTestId('summary-unpaid').textContent).toBe('฿2,458.93');
+
+      // Charge rows in บิล show date, title, pot pill, and amount (channel is in card header).
+      const cardSection = screen.getByTestId('bill-card-src-card');
+      expect(within(cardSection).getByText('บัตรเครดิต')).toBeTruthy();
+      const claudeRow = within(cardSection).getByTestId('bill-charge-sub-sub-claude-2026-11-01-0');
+      expect(within(claudeRow).getByText('Claude')).toBeTruthy();
+      expect(within(claudeRow).getByText('ใช้ตามใจ')).toBeTruthy();
+      expect(within(claudeRow).getByText('฿699')).toBeTruthy();
+
+      // Summary card stays visible in right column when switching to ผ่อน / สมาชิก, and rows have single-row desktop layout.
+      fireEvent.click(screen.getByRole('tab', { name: 'ผ่อน' }));
+      expect(screen.getByTestId('bills-summary-card')).toBeTruthy();
+      const instBtn = screen.getByTestId('installment-item-inst-airpods');
+      expect(instBtn.className).toContain('lg:flex-row');
+
+      fireEvent.click(screen.getByRole('tab', { name: 'สมาชิก' }));
+      expect(screen.getByTestId('bills-summary-card')).toBeTruthy();
+      const subRow = screen.getByTestId('subscription-item-sub-claude');
+      expect(subRow.innerHTML).toContain('lg:flex lg:items-center');
+    });
+  });
+
+  describe('animations and error toasts (SPEC §5)', () => {
+    function wireStatefulCrudMocks() {
+      upsertSubscriptionSpy.mockImplementation(async (input) => {
+        const nextSub: Subscription = { id: input.id ?? 'sub-added', ...input };
+        if (mockData) {
+          const exists = mockData.subscriptions.some((s) => s.id === nextSub.id);
+          const next = {
+            ...mockData,
+            subscriptions: exists
+              ? mockData.subscriptions.map((s) => (s.id === nextSub.id ? nextSub : s))
+              : [...mockData.subscriptions, nextSub],
+          };
+          mockData = next;
+          setMockDataState?.(next);
+        }
+        return nextSub;
+      });
+      deleteSubscriptionSpy.mockImplementation(async (id) => {
+        if (mockData) {
+          const next = { ...mockData, subscriptions: mockData.subscriptions.filter((s) => s.id !== id) };
+          mockData = next;
+          setMockDataState?.(next);
+        }
+      });
+      upsertInstallmentSpy.mockImplementation(async (input) => {
+        const nextInst: Installment = { id: input.id ?? 'inst-added', ...input };
+        if (mockData) {
+          const exists = mockData.installments.some((i) => i.id === nextInst.id);
+          const next = {
+            ...mockData,
+            installments: exists
+              ? mockData.installments.map((i) => (i.id === nextInst.id ? nextInst : i))
+              : [...mockData.installments, nextInst],
+          };
+          mockData = next;
+          setMockDataState?.(next);
+        }
+        return nextInst;
+      });
+      deleteInstallmentSpy.mockImplementation(async (id) => {
+        if (mockData) {
+          const next = { ...mockData, installments: mockData.installments.filter((i) => i.id !== id) };
+          mockData = next;
+          setMockDataState?.(next);
+        }
+      });
+    }
+
+    it('never animates rows or summary money on initial load or tab switch', () => {
+      renderPage('2026-11-15');
+      expect(document.querySelectorAll('.row-enter, .row-exit')).toHaveLength(0);
+      expect(document.querySelectorAll('.money-in, .money-out')).toHaveLength(0);
+
+      fireEvent.click(screen.getByRole('tab', { name: 'ผ่อน' }));
+      expect(document.querySelectorAll('.row-enter, .row-exit')).toHaveLength(0);
+
+      fireEvent.click(screen.getByRole('tab', { name: 'สมาชิก' }));
+      expect(document.querySelectorAll('.row-enter, .row-exit')).toHaveLength(0);
+    });
+
+    it('animates AnimatedRow enter/exit when adding and deleting a subscription', async () => {
+      wireStatefulCrudMocks();
+      renderPage('2026-11-15');
+      fireEvent.click(screen.getByRole('tab', { name: 'สมาชิก' }));
+
+      // Add subscription -> enters with .row-enter
+      fireEvent.click(screen.getByRole('button', { name: 'เพิ่มสมาชิก' }));
+      const addDialog = screen.getByRole('dialog');
+      fireEvent.change(within(addDialog).getByLabelText('ชื่อสมาชิก'), { target: { value: 'Figma' } });
+      fireEvent.change(within(addDialog).getByLabelText('ยอดเงิน'), { target: { value: '500' } });
+      fireEvent.change(within(addDialog).getByLabelText('วันตัดเงิน (1–31)'), { target: { value: '5' } });
+      fireEvent.click(within(addDialog).getByRole('button', { name: 'บันทึก' }));
+
+      const addedRow = await screen.findByTestId('subscription-item-sub-added');
+      expect(addedRow.closest('.row-enter')).toBeTruthy();
+
+      // Delete subscription -> exits with .row-exit for ROW_EXIT_MS then unmounts
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      fireEvent.click(addedRow);
+      const editDialog = screen.getByRole('dialog');
+      const holdBtn = within(editDialog).getByRole('button', { name: /กดค้างเพื่อลบ/ });
+      fireEvent.pointerDown(holdBtn);
+      await act(async () => {
+        vi.advanceTimersByTime(1200);
+      });
+
+      const leavingRow = screen.getByTestId('subscription-item-sub-added').closest('[data-leaving="true"]');
+      expect(leavingRow).toBeTruthy();
+      expect(leavingRow!.className).toContain('row-exit');
+
+      await act(async () => {
+        vi.advanceTimersByTime(ROW_EXIT_MS);
+      });
+      expect(screen.queryByTestId('subscription-item-sub-added')).toBeNull();
+    });
+
+    it('animates AnimatedRow enter/exit when adding and deleting an installment', async () => {
+      wireStatefulCrudMocks();
+      renderPage('2026-11-15');
+      fireEvent.click(screen.getByRole('tab', { name: 'ผ่อน' }));
+
+      fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการผ่อน' }));
+      const addDialog = screen.getByRole('dialog');
+      fireEvent.change(within(addDialog).getByLabelText('ชื่อรายการ'), { target: { value: 'Keyboard' } });
+      fireEvent.change(within(addDialog).getByLabelText('ยอดต่องวด'), { target: { value: '200' } });
+      fireEvent.change(within(addDialog).getByLabelText('จำนวนงวด'), { target: { value: '5' } });
+      fireEvent.change(within(addDialog).getByLabelText('วันที่งวดแรก'), { target: { value: '2026-11-05' } });
+      fireEvent.click(within(addDialog).getByRole('button', { name: 'บันทึก' }));
+
+      const addedInst = await screen.findByTestId('installment-item-inst-added');
+      expect(addedInst.closest('.row-enter')).toBeTruthy();
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      fireEvent.click(addedInst);
+      const editDialog = screen.getByRole('dialog');
+      const holdBtn = within(editDialog).getByRole('button', { name: /กดค้างเพื่อลบ/ });
+      fireEvent.pointerDown(holdBtn);
+      await act(async () => {
+        vi.advanceTimersByTime(1200);
+      });
+
+      const leavingInst = screen.getByTestId('installment-item-inst-added').closest('[data-leaving="true"]');
+      expect(leavingInst).toBeTruthy();
+      expect(leavingInst!.className).toContain('row-exit');
+
+      await act(async () => {
+        vi.advanceTimersByTime(ROW_EXIT_MS);
+      });
+      expect(screen.queryByTestId('installment-item-inst-added')).toBeNull();
+    });
+
+    it('animates bill payment transition and summary AnimatedMoney when paying a bill', async () => {
+      mockMatchMedia(1280);
+      renderPage('2026-11-15');
+
+      const unpaidBox = screen.getByTestId('summary-unpaid');
+      expect(unpaidBox.textContent).toBe('฿2,458.93');
+
+      const cardSection = screen.getByTestId('bill-card-src-card');
+      fireEvent.click(within(cardSection).getByRole('button', { name: /จ่ายแล้ว/ }));
+
+      await waitFor(() => expect(payBillSpy).toHaveBeenCalled());
+      // Summary AnimatedMoney crossfades unpaid total from 2,458.93 -> 1,381.93
+      expect(unpaidBox.querySelector('.money-out')).toBeTruthy();
+      expect(unpaidBox.querySelector('.money-in')).toBeTruthy();
+      expect(unpaidBox.textContent).toContain('฿1,381.93');
+      // Outgoing action exits via AnimatedRow
+      expect(cardSection.querySelector('.row-exit')).toBeTruthy();
+    });
+
+    it('shows error toast with repo error message when paying, saving, or deleting fails', async () => {
+      renderPage('2026-11-15');
+
+      // 1. Pay bill error
+      payBillSpy.mockRejectedValueOnce(new Error('เชื่อมต่อฐานข้อมูลไม่ได้'));
+      const cardSection = screen.getByTestId('bill-card-src-card');
+      fireEvent.click(within(cardSection).getByRole('button', { name: /จ่ายแล้ว/ }));
+      expect(await screen.findByText(/บันทึกจ่ายบิลไม่สำเร็จ.*เชื่อมต่อฐานข้อมูลไม่ได้/)).toBeTruthy();
+
+      // 2. Save installment error
+      upsertInstallmentSpy.mockRejectedValueOnce(new Error('บันทึกผ่อนล้มเหลว'));
+      fireEvent.click(screen.getByRole('tab', { name: 'ผ่อน' }));
+      fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการผ่อน' }));
+      const instDialog = screen.getByRole('dialog');
+      fireEvent.change(within(instDialog).getByLabelText('ชื่อรายการ'), { target: { value: 'Mouse' } });
+      fireEvent.change(within(instDialog).getByLabelText('ยอดต่องวด'), { target: { value: '200' } });
+      fireEvent.change(within(instDialog).getByLabelText('จำนวนงวด'), { target: { value: '3' } });
+      fireEvent.change(within(instDialog).getByLabelText('วันที่งวดแรก'), { target: { value: '2026-11-01' } });
+      fireEvent.click(within(instDialog).getByRole('button', { name: 'บันทึก' }));
+      expect(await screen.findByText(/บันทึกไม่สำเร็จ.*บันทึกผ่อนล้มเหลว/)).toBeTruthy();
+
+      // Close sheet before next check
+      fireEvent.click(within(instDialog).getByRole('button', { name: 'ปิด' }));
+
+      // 3. Save & delete subscription error
+      upsertSubscriptionSpy.mockRejectedValueOnce(new Error('บันทึกสมาชิกล้มเหลว'));
+      fireEvent.click(screen.getByRole('tab', { name: 'สมาชิก' }));
+      fireEvent.click(screen.getByRole('button', { name: 'เพิ่มสมาชิก' }));
+      const subDialog = screen.getByRole('dialog');
+      fireEvent.change(within(subDialog).getByLabelText('ชื่อสมาชิก'), { target: { value: 'Spotify' } });
+      fireEvent.change(within(subDialog).getByLabelText('ยอดเงิน'), { target: { value: '129' } });
+      fireEvent.change(within(subDialog).getByLabelText('วันตัดเงิน (1–31)'), { target: { value: '5' } });
+      fireEvent.click(within(subDialog).getByRole('button', { name: 'บันทึก' }));
+      expect(await screen.findByText(/บันทึกไม่สำเร็จ.*บันทึกสมาชิกล้มเหลว/)).toBeTruthy();
+      fireEvent.click(within(subDialog).getByRole('button', { name: 'ปิด' }));
+
+      // 4. Delete subscription error
+      deleteSubscriptionSpy.mockRejectedValueOnce(new Error('สิทธิ์ไม่เพียงพอ'));
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      fireEvent.click(screen.getByTestId('subscription-item-sub-claude'));
+      const editSubDialog = screen.getByRole('dialog');
+      const holdBtn = within(editSubDialog).getByRole('button', { name: /กดค้างเพื่อลบ/ });
+      fireEvent.pointerDown(holdBtn);
+      await act(async () => {
+        vi.advanceTimersByTime(1200);
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(50);
+      });
+      vi.useRealTimers();
+      expect(await screen.findByText(/ลบไม่สำเร็จ.*สิทธิ์ไม่เพียงพอ/)).toBeTruthy();
     });
   });
 });
