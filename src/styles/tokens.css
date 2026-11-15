@@ -17,6 +17,9 @@
   --text: 27 29 31; /* #1b1d1f */
   --muted: 92 96 100; /* #5c6064 */
   --accent: 29 95 214; /* #1d5fd6 */
+  /* Label colour on accent/negative fills. A token (not text-white) because dark-theme accent is light:
+     white on #5b95ec is 3.1:1, so dark flips to the ground colour. */
+  --on-accent: 255 255 255; /* #ffffff */
   --positive: 47 122 69; /* #2f7a45 */
   --negative: 196 28 41; /* #c41c29 */
   --warning: 146 64 14; /* #92400e */
@@ -79,6 +82,7 @@
   --text: 236 238 240; /* #eceef0 */
   --muted: 154 160 166; /* #9aa0a6 */
   --accent: 91 149 236; /* #5b95ec */
+  --on-accent: 17 18 20; /* #111214 */
   --positive: 92 194 133; /* #5cc285 */
   --negative: 240 100 110; /* #f0646e */
   --warning: 240 163 92; /* #f0a35c */

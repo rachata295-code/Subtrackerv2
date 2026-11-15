@@ -1,3 +1,4 @@
+import plugin from 'tailwindcss/plugin';
 import type { Config } from 'tailwindcss';
 
 // Every colour reads a CSS variable from tokens.css, so a theme switch is only a
@@ -27,6 +28,7 @@ export default {
       text: v('text'),
       muted: v('muted'),
       accent: v('accent'),
+      'on-accent': v('on-accent'),
       positive: v('positive'),
       negative: v('negative'),
       warning: v('warning'),
@@ -84,5 +86,11 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // Hover exists only for a real mouse. Without this gate, touch devices keep the hover style stuck
+    // after a tap. Usage: `hover-fine:hover:opacity-90` (the :hover pseudo-class is still required).
+    plugin(({ addVariant }) => {
+      addVariant('hover-fine', '@media (hover: hover) and (pointer: fine)');
+    }),
+  ],
 } satisfies Config;

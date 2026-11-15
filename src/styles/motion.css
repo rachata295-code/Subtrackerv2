@@ -34,3 +34,21 @@
     opacity: 0.7;
   }
 }
+
+/*
+ * .pressable: press feedback for buttons and clickable tiles. Transition (not keyframes) so a rapid
+ * second tap can interrupt midway. Disabled/busy controls must not look pressable.
+ */
+.pressable {
+  transition: transform var(--dur-press) var(--ease-out);
+}
+
+.pressable:active:not(:disabled):not([aria-disabled='true']) {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pressable:active:not(:disabled):not([aria-disabled='true']) {
+    transform: none;
+  }
+}

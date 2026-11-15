@@ -52,6 +52,14 @@ describe.each(THEMES)('contrast guard (%s theme)', (theme) => {
   it('accent on surface >= 3', () => {
     expect(contrastRatio(t.accent, t.surface)).toBeGreaterThanOrEqual(3);
   });
+  // Status colours are used as text (Money, error copy), so they need body-text contrast.
+  it.each(['positive', 'negative', 'warning'] as const)('%s on surface >= 4.5', (name) => {
+    expect(contrastRatio(t[name], t.surface)).toBeGreaterThanOrEqual(4.5);
+  });
+  // Button labels sit on accent (primary) and negative (danger) fills.
+  it.each(['accent', 'negative'] as const)('on-accent label on %s fill >= 4.5', (fill) => {
+    expect(contrastRatio(t['on-accent'], t[fill])).toBeGreaterThanOrEqual(4.5);
+  });
 
   describe.each(ALL_HUES)('%s tile', (hue) => {
     it('ink on bg >= 4.5', () => {
