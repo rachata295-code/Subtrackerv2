@@ -1,0 +1,171 @@
+import type { FinanceData } from '../types/finance';
+
+/**
+ * Sample FinanceData matching the owner's real November 2026 numbers from SPEC §4.
+ * All monetary amounts are stored as integer satang.
+ */
+export const financeFixture: FinanceData = {
+  settings: {
+    userId: 'fixture-user',
+    salary: 1_020_000,
+    payDay: 10,
+  },
+  sources: [
+    {
+      id: 'src-bank',
+      name: 'บัญชี',
+      kind: 'bank',
+      hue: 'stone',
+      archived: false,
+      statementCloseDay: null,
+      dueDay: null,
+      dueMonthOffset: null,
+      payFromSourceId: null,
+    },
+    {
+      id: 'src-card',
+      name: 'บัตรเครดิต',
+      kind: 'credit_card',
+      hue: 'sky',
+      archived: false,
+      statementCloseDay: 10,
+      dueDay: 24,
+      dueMonthOffset: 0,
+      payFromSourceId: 'src-bank',
+    },
+    {
+      id: 'src-spay',
+      name: 'SPayLater',
+      kind: 'paylater',
+      hue: 'apricot',
+      archived: false,
+      statementCloseDay: null,
+      dueDay: 10,
+      dueMonthOffset: 1,
+      payFromSourceId: 'src-bank',
+    },
+  ],
+  pots: [
+    {
+      id: 'pot-play',
+      name: 'ใช้ตามใจ',
+      perPeriod: 300_000,
+      rollover: true,
+      hue: 'teal',
+    },
+    {
+      id: 'pot-essential',
+      name: 'ใช้จ่ายจำเป็น',
+      perPeriod: 720_000,
+      rollover: false,
+      hue: 'stone',
+    },
+  ],
+  subscriptions: [
+    {
+      id: 'sub-claude',
+      name: 'Claude',
+      amount: 69_900,
+      frequency: 'monthly',
+      billingDay: 1,
+      billingMonth: null,
+      sourceId: 'src-card',
+      potId: 'pot-play',
+      active: true,
+    },
+    {
+      id: 'sub-gemini',
+      name: 'Gemini + YouTube',
+      amount: 27_900,
+      frequency: 'monthly',
+      billingDay: 25,
+      billingMonth: null,
+      sourceId: 'src-card',
+      potId: 'pot-play',
+      active: true,
+    },
+    {
+      id: 'sub-icloud',
+      name: 'iCloud',
+      amount: 9_900,
+      frequency: 'monthly',
+      billingDay: 3,
+      billingMonth: null,
+      sourceId: 'src-card',
+      potId: 'pot-play',
+      active: true,
+    },
+  ],
+  installments: [
+    {
+      id: 'inst-airpods',
+      name: 'AirPods',
+      perInstallment: 138_193,
+      count: 10,
+      // Starts in Sep 2026 so installment 3/10 falls in Nov 2026.
+      firstChargeDate: '2026-09-01',
+      sourceId: 'src-spay',
+      potId: 'pot-play',
+    },
+  ],
+  transactions: [
+    // October 2026 period (10 Oct – 9 Nov) starts with perPeriod 300,000 minus bills 245,893 = 54,107;
+    // this 7-satang adjustment yields an exact 54,100 (฿541.00) carryIn for November 2026.
+    {
+      id: 'tx-oct-adj',
+      date: '2026-10-20',
+      amount: 7,
+      direction: 'out',
+      sourceId: 'src-bank',
+      potId: 'pot-play',
+      category: 'other',
+      note: 'ปรับยอดยกมา',
+    },
+    {
+      id: 'tx-nov-movie',
+      date: '2026-11-11',
+      amount: 22_000,
+      direction: 'out',
+      sourceId: 'src-bank',
+      potId: 'pot-play',
+      category: 'entertainment',
+      note: 'หนัง',
+    },
+    {
+      id: 'tx-nov-tea',
+      date: '2026-11-12',
+      amount: 8_500,
+      direction: 'out',
+      sourceId: 'src-bank',
+      potId: 'pot-play',
+      category: 'food',
+      note: 'ชานม',
+    },
+    {
+      id: 'tx-nov-game',
+      date: '2026-11-14',
+      amount: 11_500,
+      direction: 'out',
+      sourceId: 'src-bank',
+      potId: 'pot-play',
+      category: 'entertainment',
+      note: 'เกม',
+    },
+  ],
+  payments: [
+    {
+      id: 'pay-oct-card',
+      sourceId: 'src-card',
+      statementKey: '2026-10',
+      amount: 107_700,
+      paidOn: '2026-10-24',
+    },
+    {
+      id: 'pay-oct-spay',
+      sourceId: 'src-spay',
+      statementKey: '2026-10',
+      amount: 138_193,
+      paidOn: '2026-11-09',
+    },
+  ],
+};

@@ -53,25 +53,34 @@ describe('<TabBar>', () => {
     );
   }
 
-  it('is a labelled navigation with 4 links', () => {
-    renderAt('/preview-home');
+  it('is a labelled navigation with 4 links pointing to the phase-1 tabs', () => {
+    renderAt('/');
     const nav = screen.getByRole('navigation', { name: 'เมนูหลัก' });
-    expect(nav.querySelectorAll('a')).toHaveLength(4);
+    const links = Array.from(nav.querySelectorAll('a'));
+    expect(links).toHaveLength(4);
+    expect(links.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['ภาพรวม', '/'],
+      ['รายการ', '/entries'],
+      ['บิล & ผ่อน', '/bills'],
+      ['ตั้งค่า', '/settings'],
+    ]);
   });
 
   it('marks only the current route as aria-current="page"', () => {
-    renderAt('/preview-home');
-    expect(screen.getByRole('link', { name: 'ภาพรวม' }).getAttribute('aria-current')).toBe('page');
+    renderAt('/bills');
+    expect(screen.getByRole('link', { name: 'บิล & ผ่อน' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: 'ภาพรวม' }).getAttribute('aria-current')).toBeNull();
     expect(screen.getByRole('link', { name: 'รายการ' }).getAttribute('aria-current')).toBeNull();
+    expect(screen.getByRole('link', { name: 'ตั้งค่า' }).getAttribute('aria-current')).toBeNull();
   });
 
-  it('marks exactly one link current even though three tabs share /design for now', () => {
+  it('marks no tab current when on a non-tab route like /design', () => {
     renderAt('/design');
-    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
   });
 
   it('reserves the iOS home-indicator safe area', () => {
-    renderAt('/preview-home');
+    renderAt('/');
     const nav = screen.getByRole('navigation', { name: 'เมนูหลัก' });
     expect(nav.getAttribute('style')).toContain('safe-area-inset-bottom');
   });
