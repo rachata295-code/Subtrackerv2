@@ -1,0 +1,306 @@
+/*
+ * Shared motion primitives. Only transform/opacity are ever animated; durations and
+ * curves come from tokens.css so a single edit retunes the whole app.
+ */
+
+/*
+ * .pressable: press feedback for buttons and clickable tiles. Transition (not keyframes) so a rapid
+ * second tap can interrupt midway. Disabled/busy controls must not look pressable.
+ */
+.pressable {
+  transition: transform var(--dur-press) var(--ease-out);
+}
+
+.pressable:active:not(:disabled):not([aria-disabled='true']):not([aria-busy='true']) {
+  transform: scale(0.97);
+}
+
+/* Reduced motion: no movement, but a press must still acknowledge the tap, so keep a short opacity dip. */
+@media (prefers-reduced-motion: reduce) {
+  .pressable {
+    transition: opacity var(--dur-press) var(--ease-out);
+  }
+  .pressable:active:not(:disabled):not([aria-disabled='true']):not([aria-busy='true']) {
+    transform: none;
+    opacity: 0.7;
+  }
+}
+
+/* Loading placeholder: slow opacity pulse (1.6s, 0.5 to 1) so it never reads as flicker. Opacity only. */
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.skeleton {
+  animation: skeleton-pulse 1.6s var(--ease-in-out) infinite;
+}
+
+/* Reduced motion: a static placeholder is enough. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+/*
+ * HoldToDelete fill. clip-path (not width) so the wipe never triggers layout. Pressing fills linearly over
+ * --hold-ms so progress maps 1:1 to elapsed time; releasing snaps back in 200ms with ease-out.
+ */
+.hold-fill {
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 200ms var(--ease-out);
+  pointer-events: none;
+}
+
+.hold-fill[data-holding='true'] {
+  clip-path: inset(0);
+  transition: clip-path var(--hold-ms, 1200ms) linear;
+}
+
+/* Reduced motion: no wipe; the same fill fades in over the same duration so progress is still visible. */
+@media (prefers-reduced-motion: reduce) {
+  .hold-fill {
+    clip-path: inset(0);
+    opacity: 0;
+    transition: opacity 200ms var(--ease-out);
+  }
+  .hold-fill[data-holding='true'] {
+    opacity: 1;
+    transition: opacity var(--hold-ms, 1200ms) linear;
+  }
+}
+
+/*
+ * BottomSheet timing. Vaul drives open/close with CSS keyframes whose duration is hard-coded to 0.5s, with no
+ * prop to change it, so we override it here via Vaul's own data attributes. The drawer selectors are one attribute more
+ * specific than Vaul's injected drawer rule (the overlay is handled separately below). Only the animation-* properties
+ * are overridden (not transition): Vaul sets inline transitions while dragging and an !important here would
+ * make the sheet lag the finger. Exit (240ms) is faster than enter (--dur-sheet) because leaving should
+ * never make the user wait.
+ */
+[data-vaul-drawer][data-state='open'] {
+  animation-duration: var(--dur-sheet);
+  animation-timing-function: var(--ease-drawer);
+}
+
+[data-vaul-drawer][data-state='closed'] {
+  animation-duration: 240ms;
+  animation-timing-function: var(--ease-drawer);
+}
+
+/*
+ * The overlay needs one more attribute than the drawer: Vaul's own `[data-vaul-overlay][data-vaul-snap-points=false]`
+ * rule has the same specificity as `[data-vaul-overlay][data-state]` and is injected into <head> after this file, so
+ * it would win on order and keep the scrim fading for 500ms (still catching taps) after the sheet has left.
+ * Matching on the presence of data-vaul-snap-points makes ours strictly more specific (0,3,0 vs 0,2,0).
+ */
+[data-vaul-overlay][data-vaul-snap-points][data-state='open'] {
+  animation-duration: var(--dur-sheet);
+}
+
+[data-vaul-overlay][data-vaul-snap-points][data-state='closed'] {
+  animation-duration: 240ms;
+}
+
+/* Reduced motion: the sheet fades instead of sliding (Vaul's keyframes only animate transform). */
+@keyframes sheet-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-vaul-drawer][data-state='open'] {
+    animation-name: sheet-fade-in !important;
+    animation-duration: var(--dur-fast);
+    animation-timing-function: var(--ease-out);
+  }
+  [data-vaul-drawer][data-state='closed'] {
+    animation-name: sheet-fade-out !important;
+    animation-duration: var(--dur-press);
+    animation-timing-function: var(--ease-out);
+  }
+}
+
+/*
+ * Rows the user adds or removes (spec 6): enter fades in while rising 8px over --dur-fast; exit fades out while
+ * lifting 4px, faster (--dur-press) because leaving must never make the user wait. Keyframe animations on a class
+ * toggle (not @starting-style) so this also works on Safari 17 and needs no "previous style" to transition from.
+ * Add .row-enter only to rows created after first paint, otherwise the whole list would animate on load.
+ * `backwards` holds the first frame during any delay without leaving a transform behind; exit uses `forwards`
+ * so the row stays invisible until its owner unmounts it (after --dur-press).
+ */
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes row-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.row-enter {
+  animation: row-in var(--dur-fast) var(--ease-out) backwards;
+}
+
+/* pointer-events: a row on its way out must not catch a late tap. */
+.row-exit {
+  animation: row-out var(--dur-press) var(--ease-out) forwards;
+  pointer-events: none;
+}
+
+/* Reduced motion: same timing, opacity only (no movement). */
+@keyframes row-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes row-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-enter {
+    animation-name: row-fade-in;
+  }
+  .row-exit {
+    animation-name: row-fade-out;
+  }
+}
+
+/*
+ * AnimatedMoney: old and new amounts crossfade over --dur-base, with a 2px blur peaking at the midpoint so the
+ * swap reads as one figure changing rather than two numbers overlapping. filter is allowed here (spec 6) and
+ * only runs for these two short-lived layers. `both` keeps the end state so there is no flash before removal.
+ */
+@keyframes money-out {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  50% {
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 0;
+    filter: blur(2px);
+  }
+}
+
+@keyframes money-in {
+  0% {
+    opacity: 0;
+    filter: blur(2px);
+  }
+  50% {
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+.money-out {
+  animation: money-out var(--dur-base) var(--ease-out) both;
+}
+
+.money-in {
+  animation: money-in var(--dur-base) var(--ease-out) both;
+}
+
+/* Reduced motion: opacity only, no blur. */
+@keyframes money-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes money-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .money-out {
+    animation-name: money-fade-out;
+  }
+  .money-in {
+    animation-name: money-fade-in;
+  }
+}
+
+/*
+ * Paid-in-full check (the one celebration, spec 6): the stroke draws in via stroke-dashoffset. The path uses
+ * pathLength="1" so dasharray/offset are in 0..1 units whatever its drawn size. 300ms keeps the whole
+ * celebration (draw + the row leaving) inside 500ms.
+ */
+@keyframes check-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.check-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: check-draw 300ms var(--ease-out) forwards;
+}
+
+/* Reduced motion: the check is simply there; nothing draws. */
+@media (prefers-reduced-motion: reduce) {
+  .check-draw {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}

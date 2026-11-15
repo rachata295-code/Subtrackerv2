@@ -236,10 +236,10 @@ SubTracker v1 (`qf6rrqnymb-dev.github.io`) เป็นแอปการเง�
 
 ## 9. เกณฑ์ว่าเสร็จ (Definition of Done)
 
-- [ ] `npm run typecheck`, `npm run test:run`, `npm run build` ผ่าน
+- [x] `npm run typecheck`, `npm run test:run`, `npm run build` ผ่าน
 - [ ] ข้อความทุกคู่ (text บน surface, ink บน tile bg) contrast ≥4.5:1 · mark บน surface ≥3:1 — **ทั้งสองธีม** (มี test หรือสคริปต์ตรวจ)
-- [ ] `lint.mjs --app` และ `inspect.mjs --app` บน build จริง: 0 FAIL ที่ 390 / 768 / 1440
-- [ ] ฟอนต์ไทยแสดงถูกเมื่อปิดเน็ต (หลังโหลดครั้งแรก)
+- [x] `lint.mjs --app` และ `inspect.mjs --app` บน build จริง: 0 FAIL ที่ 390 / 768 / 1440
+- [x] ฟอนต์ไทยแสดงถูกเมื่อปิดเน็ต (หลังโหลดครั้งแรก)
 - [ ] ทุก animation เคารพ reduced-motion · ไม่มี `transition: all` ใน source
 - [ ] ใช้งานด้วยคีย์บอร์ดได้ทุก control · focus มองเห็นชัดทั้งสองธีม
 - [ ] เปิดบน iPhone (PWA) แล้ว TabBar ไม่ทับ home indicator

@@ -1,0 +1,119 @@
+/*
+ * Design tokens: single source of truth for colour, radius, spacing and motion.
+ * Colours are stored as space-separated RGB channels (not hex) so Tailwind can
+ * compose alpha via rgb(var(--x) / <alpha-value>); the original hex sits in a
+ * trailing comment so it stays greppable and reviewable.
+ * Dark mode is only a swap of this variable set: no per-class dark: variants.
+ */
+
+:root {
+  /* Light theme (spec 5.1, 5.3) */
+  --ground: 243 245 247; /* #f3f5f7 */
+  --surface: 255 255 255; /* #ffffff */
+  --raised: 242 248 253; /* #f2f8fd */
+  --border: 230 230 230; /* #e6e6e6 */
+  --rule: 244 244 244; /* #f4f4f4 */
+  --control: 214 217 221; /* #d6d9dd */
+  --text: 27 29 31; /* #1b1d1f */
+  --muted: 92 96 100; /* #5c6064 */
+  --accent: 29 95 214; /* #1d5fd6 */
+  /* Label colour on accent/negative fills. A token (not text-white) because dark-theme accent is light:
+     white on #5b95ec is 3.1:1, so dark flips to the ground colour. */
+  --on-accent: 255 255 255; /* #ffffff */
+  --positive: 47 122 69; /* #2f7a45 */
+  --negative: 196 28 41; /* #c41c29 */
+  --warning: 146 64 14; /* #92400e */
+  --sky-bg: 220 241 255; /* #dcf1ff */
+  --sky-ink: 10 58 128; /* #0a3a80 */
+  --sky-mark: 77 143 224; /* #4d8fe0 */
+  --apricot-bg: 255 238 221; /* #ffeedd */
+  --apricot-ink: 122 51 6; /* #7a3306 */
+  --apricot-mark: 213 115 35; /* #d57323; was #e58a3c, 2.6:1 on surface; darkened to brick, hue kept (spec 5.3) */
+  --teal-bg: 220 245 238; /* #dcf5ee */
+  --teal-ink: 14 74 60; /* #0e4a3c */
+  --teal-mark: 42 135 152; /* #2a8798 */
+  --stone-bg: 238 241 244; /* #eef1f4 */
+  --stone-ink: 58 61 64; /* #3a3d40 */
+  --stone-mark: 133 142 153; /* #858e99; was #c3c8ce, 1.7:1 on surface; darkened to mid-grey, hue kept (spec 5.3) */
+  /* Spare hues (spec 5.3, builder's choice). Hue picked at 300 deg and 342 deg: the only wheel gaps >=40 deg
+     from sky/apricot/teal/stone that avoid violet/indigo (250-290), and 42 deg from each other. */
+  --lilac-bg: 249 231 249; /* #f9e7f9 */
+  --lilac-ink: 115 33 115; /* #732173 */
+  --lilac-mark: 182 119 182; /* #b677b6 */
+  --rose-bg: 253 226 234; /* #fde2ea */
+  --rose-ink: 135 13 49; /* #870d31 */
+  --rose-mark: 215 106 139; /* #d76a8b */
+
+  /* Radii (spec 5.5): only these four values are allowed. */
+  --radius-card: 20px;
+  --radius-tile: 12px;
+  --radius-pill: 8px;
+  --radius-dot: 2px;
+
+  /* Spacing (spec 5.5) */
+  --gap: 14px;
+  --pad-card: 16px;
+  --pad-screen: 16px;
+  --tap-min: 44px;
+  /* TabBar content height (8px top padding + 44px row), excluding the safe-area inset. The toaster offsets by it. */
+  --tabbar-h: 52px;
+
+  /* Scrim behind sheets: black in both themes (a text-colour scrim would turn white in dark). */
+  --scrim: 0 0 0;
+
+  /* Shadow (spec 5.5): the only one, for sheet/toast/menu. Nothing resting gets a shadow. */
+  --shadow-float: 0 8px 24px rgb(0 0 0 / 0.16);
+
+  /* Motion (spec 5.6) */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-press: 140ms;
+  --dur-fast: 180ms;
+  --dur-base: 240ms;
+  --dur-sheet: 360ms;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  /* Dark theme (spec 5.2, 5.3): neutral grey ground, layers separated by lightness, no shadows */
+  --ground: 17 18 20; /* #111214 */
+  --surface: 26 28 31; /* #1a1c1f */
+  --raised: 34 37 41; /* #222529 */
+  --border: 42 45 49; /* #2a2d31 */
+  --rule: 34 37 41; /* #222529 */
+  --control: 58 62 68; /* #3a3e44 */
+  --text: 236 238 240; /* #eceef0 */
+  --muted: 154 160 166; /* #9aa0a6 */
+  --accent: 91 149 236; /* #5b95ec */
+  --on-accent: 17 18 20; /* #111214 */
+  --positive: 92 194 133; /* #5cc285 */
+  --negative: 240 100 110; /* #f0646e */
+  --warning: 240 163 92; /* #f0a35c */
+  --sky-bg: 18 48 79; /* #12304f */
+  --sky-ink: 207 230 255; /* #cfe6ff */
+  --sky-mark: 91 154 232; /* #5b9ae8 */
+  --apricot-bg: 67 36 12; /* #43240c */
+  --apricot-ink: 255 217 184; /* #ffd9b8 */
+  --apricot-mark: 238 154 80; /* #ee9a50 */
+  --teal-bg: 15 58 51; /* #0f3a33 */
+  --teal-ink: 198 239 228; /* #c6efe4 */
+  --teal-mark: 63 163 179; /* #3fa3b3 */
+  --stone-bg: 36 39 43; /* #24272b */
+  --stone-ink: 213 217 222; /* #d5d9de */
+  --stone-mark: 107 113 120; /* #6b7178 */
+  --lilac-bg: 46 31 46; /* #2e1f2e */
+  --lilac-ink: 232 194 232; /* #e8c2e8 */
+  --lilac-mark: 178 105 178; /* #b269b2 */
+  --rose-bg: 61 15 29; /* #3d0f1d */
+  --rose-ink: 247 184 203; /* #f7b8cb */
+  --rose-mark: 222 81 124; /* #de517c */
+
+  --scrim: 0 0 0;
+
+  /* Stronger in dark: a soft shadow vanishes against a near-black ground. */
+  --shadow-float: 0 8px 24px rgb(0 0 0 / 0.5);
+
+  color-scheme: dark;
+}

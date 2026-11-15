@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background-color: rgb(var(--ground));
+    -webkit-text-size-adjust: 100%;
+    /* Theme changes are instant by design (spec 6), so no colour transition here. */
+  }
+
+  body {
+    margin: 0;
+    background-color: rgb(var(--ground));
+    color: rgb(var(--text));
+    font-family: "Manrope", "Anuphan", system-ui, sans-serif;
+    font-weight: 400;
+    font-size: 16px;
+    line-height: 1.5;
+    /* Manrope has no Thai glyphs; the stack falls through to Anuphan per character. */
+    -webkit-font-smoothing: antialiased;
+    /* Kills the grey flash on tap in iOS Safari; we draw our own press feedback. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* One focus style for every control, visible in both themes because accent is themed. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 2px;
+  }
+
+  /* Money and dates must align in columns. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

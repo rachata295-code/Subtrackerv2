@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="th" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover lets the TabBar use env(safe-area-inset-bottom) on iOS standalone -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f3f5f7" />
+    <!-- iOS standalone: without these, "Add to Home Screen" opens a Safari tab instead of an app window. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="SubTracker" />
+    <!-- %BASE_URL% is replaced by Vite, so the href is right at / and at /Subtrackerv2/. -->
+    <link rel="apple-touch-icon" href="%BASE_URL%icons/apple-touch-icon.png" />
+    <title>SubTracker</title>
+    <script>
+      // Runs before React mounts so the first paint already has the right theme (no light flash in dark).
+      // Must stay in sync with THEME_STORAGE_KEY / THEME_COLOR in src/lib/theme.ts.
+      (function () {
+        var pref = 'system';
+        try {
+          var stored = window.localStorage.getItem('subtracker-theme');
+          if (stored === 'light' || stored === 'dark' || stored === 'system') pref = stored;
+        } catch (e) {
+          /* storage blocked: follow the system */
+        }
+        var systemDark = false;
+        try {
+          systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        } catch (e) {
+          /* no matchMedia: assume light */
+        }
+        var dark = pref === 'dark' || (pref === 'system' && systemDark);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', dark ? '#111214' : '#f3f5f7');
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
