@@ -1,12 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import '@fontsource/manrope/400.css';
-import '@fontsource/manrope/500.css';
-import '@fontsource/manrope/600.css';
-import '@fontsource/anuphan/400.css';
-import '@fontsource/anuphan/500.css';
-import '@fontsource/anuphan/600.css';
+import './styles/fonts.css';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/motion.css';
