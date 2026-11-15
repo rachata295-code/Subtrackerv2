@@ -10,6 +10,7 @@ import type {
   CreateTransactionsInput,
   FinanceData,
   Hue,
+  ISODate,
   Installment,
   PayBillInput,
   PaymentSource,
@@ -109,7 +110,7 @@ export interface BalanceCheckRow {
   actual: string | number;
   expected_before: string | number | null;
   adjustment_tx_id: string | null;
-  created_at: string;
+  created_at?: string;
 }
 
 export interface PlanItemRow {
@@ -156,6 +157,11 @@ function wrapRepoError(message: string, cause: unknown): Error {
   const err = new Error(message);
   (err as Error & { cause?: unknown }).cause = cause;
   return err;
+}
+
+/** Returns today's calendar date in Asia/Bangkok (UTC+7) formatted as 'YYYY-MM-DD'. */
+export function todayBangkokISO(now: Date = new Date()): ISODate {
+  return new Date(now.getTime() + 7 * 3_600_000).toISOString().slice(0, 10);
 }
 
 /** Converts a Postgres numeric string/number into integer satang without float drift. */
@@ -315,6 +321,7 @@ export function mapTransactionToRow(input: CreateTransactionInput): Omit<Transac
     pot_id: input.potId,
     category: input.category,
     note: input.note,
+    ...(input.createdAt !== undefined ? { created_at: input.createdAt } : {}),
     ...(input.recurringIncomeId !== undefined ? { recurring_income_id: input.recurringIncomeId } : {}),
     ...(input.incomeDueOn !== undefined ? { income_due_on: input.incomeDueOn } : {}),
   };
@@ -337,6 +344,87 @@ export function mapBillPaymentToRow(input: PayBillInput): Omit<BillPaymentRow, '
     statement_key: input.statementKey,
     amount: satangToNumeric(input.amount),
     paid_on: input.paidOn,
+    ...(input.createdAt !== undefined ? { created_at: input.createdAt } : {}),
+  };
+}
+
+export function mapBalanceCheckFromRow(row: BalanceCheckRow): BalanceCheck {
+  return {
+    id: row.id,
+    sourceId: row.source_id,
+    checkedOn: row.checked_on,
+    actual: numericToSatang(row.actual),
+    expectedBefore:
+      row.expected_before !== null && row.expected_before !== undefined
+        ? numericToSatang(row.expected_before)
+        : null,
+    adjustmentTxId: row.adjustment_tx_id ?? null,
+    createdAt: row.created_at ?? '1970-01-01T00:00:00.000Z',
+  };
+}
+
+export function mapBalanceCheckToRow(
+  input: Omit<BalanceCheck, 'id' | 'createdAt'> & { createdAt?: string },
+): Omit<BalanceCheckRow, 'id' | 'created_at'> & { created_at?: string } {
+  return {
+    source_id: input.sourceId,
+    checked_on: input.checkedOn,
+    actual: satangToNumeric(input.actual),
+    expected_before: input.expectedBefore !== null ? satangToNumeric(input.expectedBefore) : null,
+    adjustment_tx_id: input.adjustmentTxId,
+    ...(input.createdAt !== undefined ? { created_at: input.createdAt } : {}),
+  };
+}
+
+export function mapPlanItemFromRow(row: PlanItemRow): PlanItem {
+  return {
+    id: row.id,
+    periodKey: row.period_key,
+    name: row.name,
+    amount: numericToSatang(row.amount),
+    kind: row.kind,
+    sourceId: row.source_id,
+    dueOn: row.due_on ?? null,
+    category: row.category,
+    doneTxId: row.done_tx_id ?? null,
+    sortOrder: row.sort_order,
+  };
+}
+
+export function mapPlanItemToRow(input: Omit<PlanItem, 'id'>): Omit<PlanItemRow, 'id'> {
+  return {
+    period_key: input.periodKey,
+    name: input.name,
+    amount: satangToNumeric(input.amount),
+    kind: input.kind,
+    source_id: input.sourceId,
+    due_on: input.dueOn,
+    category: input.kind === 'save' ? 'savings' : input.category,
+    done_tx_id: input.doneTxId,
+    sort_order: input.sortOrder,
+  };
+}
+
+export function mapRecurringIncomeFromRow(row: RecurringIncomeRow): RecurringIncome {
+  return {
+    id: row.id,
+    name: row.name,
+    amount: numericToSatang(row.amount),
+    dayOfMonth: row.day_of_month,
+    sourceId: row.source_id,
+    active: row.active,
+  };
+}
+
+export function mapRecurringIncomeToRow(
+  input: Omit<RecurringIncome, 'id'>,
+): Omit<RecurringIncomeRow, 'id'> {
+  return {
+    name: input.name,
+    amount: satangToNumeric(input.amount),
+    day_of_month: input.dayOfMonth,
+    source_id: input.sourceId,
+    active: input.active,
   };
 }
 
@@ -423,11 +511,6 @@ export async function loadFinanceData(client: SupabaseClient = getSupabaseClient
     ? mapSettingsFromRow(settingsRes.data as SettingsRow)
     : { userId: '', salary: 0, payDay: 10, budgetStartPeriod: null };
 
-  // Prompt 02 replaces the Phase 2 table arrays with full row mappers.
-  void balanceChecksRes;
-  void planItemsRes;
-  void recurringIncomesRes;
-
   return {
     settings,
     sources: ((sourcesRes.data ?? []) as PaymentSourceRow[]).map(mapSourceFromRow),
@@ -436,9 +519,11 @@ export async function loadFinanceData(client: SupabaseClient = getSupabaseClient
     installments: ((instsRes.data ?? []) as InstallmentRow[]).map(mapInstallmentFromRow),
     transactions: ((txRes.data ?? []) as TransactionRow[]).map(mapTransactionFromRow),
     payments: ((paymentsRes.data ?? []) as BillPaymentRow[]).map(mapBillPaymentFromRow),
-    balanceChecks: [],
-    planItems: [],
-    recurringIncomes: [],
+    balanceChecks: ((balanceChecksRes?.data ?? []) as BalanceCheckRow[]).map(mapBalanceCheckFromRow),
+    planItems: ((planItemsRes?.data ?? []) as PlanItemRow[]).map(mapPlanItemFromRow),
+    recurringIncomes: ((recurringIncomesRes?.data ?? []) as RecurringIncomeRow[]).map(
+      mapRecurringIncomeFromRow,
+    ),
   };
 }
 
@@ -699,81 +784,276 @@ export async function deleteBillPayment(
 
 export async function createTransactions(
   inputs: CreateTransactionsInput,
-  client?: SupabaseClient,
+  client: SupabaseClient = getSupabaseClient(),
 ): Promise<Transaction[]> {
-  void inputs;
-  void client;
-  throw new Error('not implemented: createTransactions');
+  if (inputs.length === 0) {
+    return [];
+  }
+  const payloads = inputs.map(mapTransactionToRow);
+  const { data, error } = await client
+    .from('transactions')
+    .insert(payloads)
+    .select(TRANSACTION_COLUMNS);
+
+  if (error || !data) {
+    throw wrapRepoError('บันทึกรายการไม่สำเร็จ', error);
+  }
+  return (data as TransactionRow[]).map(mapTransactionFromRow);
 }
 
 export async function createBalanceCheck(
   input: CreateBalanceCheckInput,
-  client?: SupabaseClient,
+  client: SupabaseClient = getSupabaseClient(),
 ): Promise<BalanceCheck> {
-  void input;
-  void client;
-  throw new Error('not implemented: createBalanceCheck');
+  const checkedOn = input.checkedOn ?? todayBangkokISO();
+  let adjustmentTx: Transaction | null = null;
+
+  // Insert the 'unknown' adjustment transaction before the check row so its created_at precedes the checkpoint.
+  if (input.adjustment && input.adjustment.amount > 0) {
+    adjustmentTx = await createTransaction(
+      {
+        date: checkedOn,
+        amount: input.adjustment.amount,
+        direction: input.adjustment.direction,
+        sourceId: input.sourceId,
+        potId: null,
+        category: 'unknown',
+        note: input.adjustment.note ?? 'ส่วนต่างเช็กยอด',
+      },
+      client,
+    );
+  }
+
+  const payload = mapBalanceCheckToRow({
+    sourceId: input.sourceId,
+    checkedOn,
+    actual: input.actual,
+    expectedBefore: input.expectedBefore,
+    adjustmentTxId: adjustmentTx ? adjustmentTx.id : null,
+  });
+
+  const { data, error } = await client
+    .from('balance_checks')
+    .insert(payload)
+    .select(BALANCE_CHECK_COLUMNS)
+    .single();
+
+  if (error || !data) {
+    if (adjustmentTx) {
+      try {
+        await deleteTransaction(adjustmentTx.id, client);
+      } catch {
+        // Best-effort rollback so the primary check insert error is surfaced.
+      }
+    }
+    throw wrapRepoError('บันทึกการเช็กยอดไม่สำเร็จ', error);
+  }
+
+  return mapBalanceCheckFromRow(data as BalanceCheckRow);
+}
+
+async function fetchPlanItemById(id: string, client: SupabaseClient): Promise<PlanItem> {
+  const { data, error } = await client
+    .from('plan_items')
+    .select(PLAN_ITEM_COLUMNS)
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) {
+    throw wrapRepoError('โหลดรายการแผนไม่สำเร็จ', error);
+  }
+  if (!data) {
+    throw wrapRepoError('ไม่พบรายการแผน', null);
+  }
+  return mapPlanItemFromRow(data as PlanItemRow);
 }
 
 export async function upsertPlanItem(
   input: UpsertPlanItemInput,
-  client?: SupabaseClient,
+  client: SupabaseClient = getSupabaseClient(),
 ): Promise<PlanItem> {
-  void input;
-  void client;
-  throw new Error('not implemented: upsertPlanItem');
+  const { id, doneTxId, sortOrder, ...rest } = input;
+  const payload = {
+    period_key: rest.periodKey,
+    name: rest.name,
+    amount: satangToNumeric(rest.amount),
+    kind: rest.kind,
+    source_id: rest.sourceId,
+    due_on: rest.dueOn,
+    category: rest.kind === 'save' ? 'savings' : rest.category,
+    // Leave done_tx_id and sort_order untouched on upsert unless explicitly provided.
+    ...(doneTxId !== undefined ? { done_tx_id: doneTxId } : {}),
+    ...(sortOrder !== undefined ? { sort_order: sortOrder } : {}),
+  };
+
+  const query = id
+    ? client.from('plan_items').upsert({ id, ...payload }, { onConflict: 'id' })
+    : client.from('plan_items').insert(payload);
+
+  const { data, error } = await query.select(PLAN_ITEM_COLUMNS).single();
+  if (error || !data) {
+    throw wrapRepoError('บันทึกรายการแผนไม่สำเร็จ', error);
+  }
+  return mapPlanItemFromRow(data as PlanItemRow);
 }
 
 export async function deletePlanItem(
   id: string,
-  client?: SupabaseClient,
+  client: SupabaseClient = getSupabaseClient(),
 ): Promise<void> {
-  void id;
-  void client;
-  throw new Error('not implemented: deletePlanItem');
+  const { error } = await client.from('plan_items').delete().eq('id', id);
+  if (error) {
+    throw wrapRepoError('ลบรายการแผนไม่สำเร็จ', error);
+  }
 }
 
 export async function completePlanItem(
   id: string,
-  client?: SupabaseClient,
+  client: SupabaseClient = getSupabaseClient(),
 ): Promise<PlanItem> {
-  void id;
-  void client;
-  throw new Error('not implemented: completePlanItem');
+  const item = await fetchPlanItemById(id, client);
+  if (item.doneTxId) {
+    return item;
+  }
+
+  const tx = await createTransaction(
+    {
+      date: todayBangkokISO(),
+      amount: item.amount,
+      direction: 'out',
+      sourceId: item.sourceId,
+      potId: null,
+      category: item.kind === 'save' ? 'savings' : item.category,
+      note: item.name,
+    },
+    client,
+  );
+
+  const { data, error } = await client
+    .from('plan_items')
+    .update({ done_tx_id: tx.id })
+    .eq('id', id)
+    .select(PLAN_ITEM_COLUMNS)
+    .single();
+
+  if (error || !data) {
+    try {
+      await deleteTransaction(tx.id, client);
+    } catch {
+      // Best-effort rollback so the primary plan_items update error is surfaced.
+    }
+    throw wrapRepoError('อัปเดตรายการแผนไม่สำเร็จ', error);
+  }
+
+  return mapPlanItemFromRow(data as PlanItemRow);
 }
 
 export async function uncompletePlanItem(
   id: string,
-  client?: SupabaseClient,
+  client: SupabaseClient = getSupabaseClient(),
 ): Promise<PlanItem> {
-  void id;
-  void client;
-  throw new Error('not implemented: uncompletePlanItem');
+  const item = await fetchPlanItemById(id, client);
+  if (!item.doneTxId) {
+    return item;
+  }
+
+  await deleteTransaction(item.doneTxId, client);
+
+  const { data, error } = await client
+    .from('plan_items')
+    .update({ done_tx_id: null })
+    .eq('id', id)
+    .select(PLAN_ITEM_COLUMNS)
+    .single();
+
+  if (error || !data) {
+    throw wrapRepoError('อัปเดตรายการแผนไม่สำเร็จ', error);
+  }
+
+  return mapPlanItemFromRow(data as PlanItemRow);
 }
 
 export async function upsertRecurringIncome(
   input: UpsertRecurringIncomeInput,
-  client?: SupabaseClient,
+  client: SupabaseClient = getSupabaseClient(),
 ): Promise<RecurringIncome> {
-  void input;
-  void client;
-  throw new Error('not implemented: upsertRecurringIncome');
+  const { id, ...rest } = input;
+  const payload = mapRecurringIncomeToRow(rest);
+
+  const query = id
+    ? client.from('recurring_incomes').upsert({ id, ...payload }, { onConflict: 'id' })
+    : client.from('recurring_incomes').insert(payload);
+
+  const { data, error } = await query.select(RECURRING_INCOME_COLUMNS).single();
+  if (error || !data) {
+    throw wrapRepoError('บันทึกเงินประจำไม่สำเร็จ', error);
+  }
+  return mapRecurringIncomeFromRow(data as RecurringIncomeRow);
 }
 
 export async function deleteRecurringIncome(
   id: string,
-  client?: SupabaseClient,
+  client: SupabaseClient = getSupabaseClient(),
 ): Promise<void> {
-  void id;
-  void client;
-  throw new Error('not implemented: deleteRecurringIncome');
+  const { error } = await client.from('recurring_incomes').delete().eq('id', id);
+  if (error) {
+    throw wrapRepoError('ลบเงินประจำไม่สำเร็จ', error);
+  }
 }
 
 export async function confirmIncome(
   input: ConfirmIncomeInput,
-  client?: SupabaseClient,
+  client: SupabaseClient = getSupabaseClient(),
 ): Promise<Transaction> {
-  void input;
-  void client;
-  throw new Error('not implemented: confirmIncome');
+  let sourceId = input.sourceId;
+  let note = input.note;
+
+  if (sourceId === undefined || note === undefined) {
+    const { data: recRow, error: recError } = await client
+      .from('recurring_incomes')
+      .select(RECURRING_INCOME_COLUMNS)
+      .eq('id', input.recurringIncomeId)
+      .maybeSingle();
+
+    if (recError) {
+      throw wrapRepoError('โหลดเงินประจำไม่สำเร็จ', recError);
+    }
+    const rec = recRow ? mapRecurringIncomeFromRow(recRow as RecurringIncomeRow) : null;
+    sourceId = sourceId ?? rec?.sourceId;
+    note = note ?? rec?.name ?? 'เงินประจำ';
+  }
+
+  if (!sourceId) {
+    const { data: bankRow, error: bankError } = await client
+      .from('payment_sources')
+      .select('id')
+      .eq('kind', 'bank')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (bankError) {
+      throw wrapRepoError('โหลดช่องทางจ่ายไม่สำเร็จ', bankError);
+    }
+    sourceId = (bankRow as { id: string } | null)?.id;
+  }
+
+  if (!sourceId) {
+    throw wrapRepoError('ไม่พบบัญชีสำหรับรับเงินประจำ', null);
+  }
+
+  return createTransaction(
+    {
+      date: input.date,
+      amount: input.amount,
+      direction: 'in',
+      sourceId,
+      potId: null,
+      category: 'allowance',
+      note,
+      recurringIncomeId: input.recurringIncomeId,
+      incomeDueOn: input.incomeDueOn,
+    },
+    client,
+  );
 }
