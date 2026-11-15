@@ -1,0 +1,36 @@
+/*
+ * Shared motion primitives. Only transform/opacity are ever animated; durations and
+ * curves come from tokens.css so a single edit retunes the whole app.
+ */
+
+/* Press feedback for anything tappable. Transition (not keyframes) so rapid taps can interrupt midway. */
+.press {
+  transition: transform var(--dur-press) var(--ease-out);
+}
+
+.press:active {
+  transform: scale(0.97);
+}
+
+/* Hover only where a real pointer exists, otherwise touch devices get stuck hover states. */
+@media (hover: hover) and (pointer: fine) {
+  .press-hover {
+    transition: opacity var(--dur-fast) var(--ease-out);
+  }
+  .press-hover:hover {
+    opacity: 0.85;
+  }
+}
+
+/* Reduced motion: remove movement entirely, keep only a short opacity change. */
+@media (prefers-reduced-motion: reduce) {
+  .press:active {
+    transform: none;
+  }
+  .press {
+    transition: opacity var(--dur-press) var(--ease-out);
+  }
+  .press:active {
+    opacity: 0.7;
+  }
+}
