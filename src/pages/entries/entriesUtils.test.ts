@@ -23,6 +23,9 @@ const TXS: Transaction[] = [
     potId: 'pot-play',
     category: 'food',
     note: 'ก่อนรอบ',
+    createdAt: '2026-11-09T05:00:00.000Z',
+    recurringIncomeId: null,
+    incomeDueOn: null,
   },
   {
     id: 'tx-1',
@@ -33,6 +36,9 @@ const TXS: Transaction[] = [
     potId: 'pot-play',
     category: 'entertainment',
     note: 'หนัง',
+    createdAt: '2026-11-11T05:00:00.000Z',
+    recurringIncomeId: null,
+    incomeDueOn: null,
   },
   {
     id: 'tx-2',
@@ -43,6 +49,9 @@ const TXS: Transaction[] = [
     potId: 'pot-essential',
     category: 'food',
     note: 'ข้าว',
+    createdAt: '2026-11-12T05:00:00.000Z',
+    recurringIncomeId: null,
+    incomeDueOn: null,
   },
   {
     id: 'tx-3',
@@ -53,6 +62,9 @@ const TXS: Transaction[] = [
     potId: 'pot-play',
     category: 'food',
     note: 'กาแฟ',
+    createdAt: '2026-11-12T06:00:00.000Z',
+    recurringIncomeId: null,
+    incomeDueOn: null,
   },
   {
     id: 'tx-4',
@@ -63,6 +75,9 @@ const TXS: Transaction[] = [
     potId: null,
     category: 'other',
     note: 'โอนคืน',
+    createdAt: '2026-11-13T05:00:00.000Z',
+    recurringIncomeId: null,
+    incomeDueOn: null,
   },
   {
     id: 'tx-after',
@@ -73,6 +88,9 @@ const TXS: Transaction[] = [
     potId: 'pot-play',
     category: 'other',
     note: 'รอบหน้า',
+    createdAt: '2026-12-10T05:00:00.000Z',
+    recurringIncomeId: null,
+    incomeDueOn: null,
   },
 ];
 
@@ -111,6 +129,9 @@ describe('entriesUtils', () => {
         potId: 'pot-play',
         category: 'food',
         note: 'อาหาร',
+        createdAt: '2026-11-14T05:00:00.000Z',
+        recurringIncomeId: null,
+        incomeDueOn: null,
       },
       {
         id: 'm2',
@@ -121,6 +142,9 @@ describe('entriesUtils', () => {
         potId: null,
         category: 'other',
         note: 'คืนเงิน',
+        createdAt: '2026-11-14T06:00:00.000Z',
+        recurringIncomeId: null,
+        incomeDueOn: null,
       },
     ];
     const groups = groupTransactionsByDay(mixed, PERIOD, 'all', 'all');

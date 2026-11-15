@@ -154,7 +154,7 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
     if (existingId && editing) {
       const previous = editing;
       try {
-        await updateTx.mutateAsync({ id: existingId, ...input });
+        await updateTx.mutateAsync({ ...editing, ...input, id: existingId });
       } catch (err) {
         toast.error(`แก้ไขรายการไม่สำเร็จ: ${formatErrorMessage(err)}`);
         return;

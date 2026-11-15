@@ -1,9 +1,37 @@
+import { createElement, type ReactNode } from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { financeFixture } from './fixtures/finance';
 import * as domain from './domain';
-import { useFinanceData } from './hooks/useFinance';
-import type { FinanceData, Outflow, PotStatus, UseFinanceData } from './types/finance';
+import * as financeRepo from './data/financeRepo';
+import {
+  useCompletePlanItem,
+  useConfirmIncome,
+  useCreateBalanceCheck,
+  useCreateTransactions,
+  useDeletePlanItem,
+  useDeleteRecurringIncome,
+  useFinanceData,
+  useUncompletePlanItem,
+  useUpsertPlanItem,
+  useUpsertRecurringIncome,
+} from './hooks/useFinance';
+import {
+  CATEGORY_LABELS,
+  IN_CATEGORIES,
+  OUT_CATEGORIES,
+  type BalanceCheck,
+  type Category,
+  type FinanceData,
+  type Outflow,
+  type PlanItem,
+  type PotStatus,
+  type RecurringIncome,
+  type UseFinanceData,
+} from './types/finance';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -19,8 +47,55 @@ describe('financeFixture', () => {
     for (const pot of data.pots) expect(Number.isInteger(pot.perPeriod)).toBe(true);
     for (const sub of data.subscriptions) expect(Number.isInteger(sub.amount)).toBe(true);
     for (const inst of data.installments) expect(Number.isInteger(inst.perInstallment)).toBe(true);
-    for (const tx of data.transactions) expect(Number.isInteger(tx.amount)).toBe(true);
-    for (const pay of data.payments) expect(Number.isInteger(pay.amount)).toBe(true);
+    for (const tx of data.transactions) {
+      expect(Number.isInteger(tx.amount)).toBe(true);
+      expect(typeof tx.createdAt).toBe('string');
+      expect(tx.createdAt.length).toBeGreaterThan(0);
+    }
+    for (const pay of data.payments) {
+      expect(Number.isInteger(pay.amount)).toBe(true);
+      expect(typeof pay.createdAt).toBe('string');
+      expect(pay.createdAt.length).toBeGreaterThan(0);
+    }
+    for (const chk of data.balanceChecks) {
+      expect(Number.isInteger(chk.actual)).toBe(true);
+      expect(typeof chk.createdAt).toBe('string');
+    }
+    for (const item of data.planItems) {
+      expect(Number.isInteger(item.amount)).toBe(true);
+    }
+    for (const inc of data.recurringIncomes) {
+      expect(Number.isInteger(inc.amount)).toBe(true);
+    }
+  });
+
+  it('includes Phase 2 fixtures: RecurringIncome (10 & 24), initial BalanceCheck (2026-11-10), PlanItems, and hotbar transactions', () => {
+    const momIncomes: RecurringIncome[] = financeFixture.recurringIncomes.filter(
+      (r) => r.name === 'เงินจากแม่' && r.sourceId === 'src-bank' && r.active,
+    );
+    expect(momIncomes.map((r) => r.dayOfMonth).sort((a, b) => a - b)).toEqual([10, 24]);
+    expect(momIncomes.every((r) => r.amount === 510_000)).toBe(true);
+
+    const bankChecks: BalanceCheck[] = financeFixture.balanceChecks.filter(
+      (c) => c.sourceId === 'src-bank' && c.checkedOn === '2026-11-10',
+    );
+    expect(bankChecks).toHaveLength(1);
+    expect(bankChecks[0]?.expectedBefore).toBeNull();
+
+    const novPlans: PlanItem[] = financeFixture.planItems.filter((p) => p.periodKey === '2026-11');
+    expect(novPlans).toHaveLength(2);
+    expect(novPlans.find((p) => p.kind === 'pay' && p.name === 'ค่าหอ')?.amount).toBe(150_000);
+    expect(novPlans.find((p) => p.kind === 'save' && p.name === 'เก็บ')?.amount).toBe(200_000);
+
+    const chickenRice = financeFixture.transactions.filter(
+      (t) => t.direction === 'out' && t.note === 'ข้าวมันไก่' && t.amount === 4_500,
+    );
+    expect(chickenRice.length).toBeGreaterThanOrEqual(3);
+
+    const milkTea = financeFixture.transactions.filter(
+      (t) => t.direction === 'out' && t.note === 'ชานม' && t.amount === 8_500,
+    );
+    expect(milkTea.length).toBeGreaterThanOrEqual(2);
   });
 
   it('sums credit card subscriptions to 107700 satang (฿1,077.00)', () => {
@@ -65,6 +140,42 @@ describe('financeFixture', () => {
   });
 });
 
+describe('Phase 2 category constants', () => {
+  it('exports OUT_CATEGORIES, IN_CATEGORIES, and Thai CATEGORY_LABELS for all 12 categories', () => {
+    expect(OUT_CATEGORIES).toEqual([
+      'food',
+      'transport',
+      'shopping',
+      'entertainment',
+      'health',
+      'bills',
+      'other',
+      'savings',
+      'unknown',
+    ]);
+    expect(IN_CATEGORIES).toEqual(['allowance', 'parttime', 'freelance', 'other', 'unknown']);
+
+    const allCategories: Category[] = [
+      'food',
+      'transport',
+      'shopping',
+      'entertainment',
+      'health',
+      'bills',
+      'other',
+      'savings',
+      'unknown',
+      'allowance',
+      'parttime',
+      'freelance',
+    ];
+    for (const cat of allCategories) {
+      expect(typeof CATEGORY_LABELS[cat]).toBe('string');
+      expect(CATEGORY_LABELS[cat].length).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe('domain contracts', () => {
   it('exports all SPEC §4 domain functions matching the shared contracts', () => {
     const card = financeFixture.sources[1]!;
@@ -81,6 +192,30 @@ describe('domain contracts', () => {
     expect(domain.potStatus(pot, '2026-11', financeFixture).left).toBe(66_207);
   });
 
+  it('exports Phase 2 domain stubs matching SPEC §6 signatures', () => {
+    expect(() => domain.spendingByCategory(financeFixture, '2026-11')).toThrow(
+      'not implemented: spendingByCategory',
+    );
+    expect(() => domain.spendingHistory(financeFixture, '2026-11', 6)).toThrow(
+      'not implemented: spendingHistory',
+    );
+    expect(() => domain.hotbarItems(financeFixture, '2026-11-15', 8)).toThrow(
+      'not implemented: hotbarItems',
+    );
+    expect(() => domain.evaluateAmountExpression('45+60')).toThrow(
+      'not implemented: evaluateAmountExpression',
+    );
+    expect(() => domain.expectedBalance('src-bank', financeFixture)).toThrow(
+      'not implemented: expectedBalance',
+    );
+    expect(() => domain.pendingIncomes(financeFixture, '2026-11-15')).toThrow(
+      'not implemented: pendingIncomes',
+    );
+    expect(() => domain.forecast(financeFixture, 'src-bank', '2026-11-15')).toThrow(
+      'not implemented: forecast',
+    );
+  });
+
   it('exports PotStatus and Outflow contract types', () => {
     const status: PotStatus = { carryIn: 0, budget: 0, reserved: 0, spent: 0, left: 0, over: false };
     const outflow: Outflow = {
@@ -95,6 +230,139 @@ describe('domain contracts', () => {
     };
     expect(status.over).toBe(false);
     expect(outflow.counted).toBe(true);
+  });
+});
+
+describe('Phase 2 repo stubs and fixture-mode hooks', () => {
+  it('exports Phase 2 repo functions on financeRepo', () => {
+    expect(typeof financeRepo.createTransactions).toBe('function');
+    expect(typeof financeRepo.createBalanceCheck).toBe('function');
+    expect(typeof financeRepo.upsertPlanItem).toBe('function');
+    expect(typeof financeRepo.deletePlanItem).toBe('function');
+    expect(typeof financeRepo.completePlanItem).toBe('function');
+    expect(typeof financeRepo.uncompletePlanItem).toBe('function');
+    expect(typeof financeRepo.upsertRecurringIncome).toBe('function');
+    expect(typeof financeRepo.deleteRecurringIncome).toBe('function');
+    expect(typeof financeRepo.confirmIncome).toBe('function');
+  });
+
+  it('supports Phase 2 mutation hooks in fixture mode (in-memory)', async () => {
+    vi.stubEnv('VITE_USE_FIXTURES', '1');
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const { result } = renderHook(
+      () => ({
+        finance: useFinanceData(),
+        createTransactions: useCreateTransactions(),
+        createBalanceCheck: useCreateBalanceCheck(),
+        upsertPlanItem: useUpsertPlanItem(),
+        deletePlanItem: useDeletePlanItem(),
+        completePlanItem: useCompletePlanItem(),
+        uncompletePlanItem: useUncompletePlanItem(),
+        upsertRecurringIncome: useUpsertRecurringIncome(),
+        deleteRecurringIncome: useDeleteRecurringIncome(),
+        confirmIncome: useConfirmIncome(),
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      const batch = await result.current.createTransactions.mutateAsync([
+        {
+          date: '2026-11-15',
+          amount: 4_500,
+          direction: 'out',
+          sourceId: 'src-bank',
+          potId: 'pot-essential',
+          category: 'food',
+          note: 'ข้าวมันไก่',
+        },
+      ]);
+      expect(batch).toHaveLength(1);
+
+      const check = await result.current.createBalanceCheck.mutateAsync({
+        sourceId: 'src-bank',
+        checkedOn: '2026-11-15',
+        actual: 450_000,
+        expectedBefore: 463_500,
+        adjustment: { amount: 13_500, direction: 'out' },
+      });
+      expect(check.actual).toBe(450_000);
+      expect(check.adjustmentTxId).toBeTruthy();
+
+      const plan = await result.current.upsertPlanItem.mutateAsync({
+        periodKey: '2026-11',
+        name: 'ค่าเน็ต',
+        amount: 60_000,
+        kind: 'pay',
+        sourceId: 'src-bank',
+        dueOn: '2026-11-20',
+        category: 'bills',
+      });
+      const completed = await result.current.completePlanItem.mutateAsync(plan.id);
+      expect(completed.doneTxId).toBeTruthy();
+      const uncompleted = await result.current.uncompletePlanItem.mutateAsync(plan.id);
+      expect(uncompleted.doneTxId).toBeNull();
+      await result.current.deletePlanItem.mutateAsync(plan.id);
+
+      const rec = await result.current.upsertRecurringIncome.mutateAsync({
+        name: 'ทุน',
+        amount: 200_000,
+        dayOfMonth: 15,
+        sourceId: 'src-bank',
+        active: true,
+      });
+      const confirmedTx = await result.current.confirmIncome.mutateAsync({
+        recurringIncomeId: rec.id,
+        incomeDueOn: '2026-11-15',
+        amount: 200_000,
+        date: '2026-11-15',
+      });
+      expect(confirmedTx.direction).toBe('in');
+      expect(confirmedTx.category).toBe('allowance');
+      expect(confirmedTx.recurringIncomeId).toBe(rec.id);
+      expect(confirmedTx.incomeDueOn).toBe('2026-11-15');
+      await result.current.deleteRecurringIncome.mutateAsync(rec.id);
+    });
+  });
+});
+
+describe('Phase 2 SQL migration & schema contracts', () => {
+  it('defines idempotent Phase 2 migration and keeps schema.sql in sync', () => {
+    const migrationSql = readFileSync(
+      resolve(process.cwd(), 'supabase/migrations/2026-11-16-phase2.sql'),
+      'utf8',
+    );
+    const schemaSql = readFileSync(resolve(process.cwd(), 'supabase/schema.sql'), 'utf8');
+
+    for (const sql of [migrationSql, schemaSql]) {
+      expect(sql).toMatch(/create table if not exists public\.recurring_incomes/i);
+      expect(sql).toMatch(/create table if not exists public\.balance_checks/i);
+      expect(sql).toMatch(/create table if not exists public\.plan_items/i);
+
+      for (const cat of ['savings', 'unknown', 'allowance', 'parttime', 'freelance']) {
+        expect(sql).toContain(`'${cat}'`);
+      }
+
+      expect(sql).toMatch(/recurring_income_id\s+uuid\s+references\s+public\.recurring_incomes\(id\)\s+on delete set null/i);
+      expect(sql).toMatch(/income_due_on\s+date/i);
+
+      expect(sql).toMatch(/alter table public\.recurring_incomes enable row level security/i);
+      expect(sql).toMatch(/alter table public\.balance_checks enable row level security/i);
+      expect(sql).toMatch(/alter table public\.plan_items enable row level security/i);
+
+      expect(sql).toMatch(/idx_recurring_incomes_user/i);
+      expect(sql).toMatch(/idx_balance_checks_user/i);
+      expect(sql).toMatch(/idx_plan_items_user/i);
+    }
+
+    expect(migrationSql).toMatch(/drop constraint if exists/i);
+    expect(migrationSql).toMatch(/add column if not exists recurring_income_id/i);
+    expect(migrationSql).toMatch(/add column if not exists income_due_on/i);
   });
 });
 

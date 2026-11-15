@@ -1,4 +1,4 @@
--- SubTracker v2 Phase 1 schema (SPEC §3)
+-- SubTracker v2 Phase 1 + Phase 2 schema (docs/phase1/SPEC.md §3, docs/phase2/SPEC.md §6)
 -- Every table is scoped by user_id and protected by Row Level Security.
 
 create extension if not exists pgcrypto;
@@ -82,7 +82,22 @@ create index if not exists idx_installments_user_source
 create index if not exists idx_installments_user_first_charge_date
   on public.installments (user_id, first_charge_date);
 
--- 6. Manual income / expense transactions
+-- 6. Recurring incomes (Phase 2: fixed-amount scheduled income)
+create table if not exists public.recurring_incomes (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  name text not null,
+  amount numeric(12, 2) not null check (amount > 0),
+  day_of_month integer not null check (day_of_month between 1 and 31),
+  source_id uuid not null references public.payment_sources(id) on delete restrict,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_recurring_incomes_user
+  on public.recurring_incomes (user_id);
+
+-- 7. Manual income / expense transactions
 create table if not exists public.transactions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -91,8 +106,13 @@ create table if not exists public.transactions (
   direction text not null check (direction in ('out', 'in')),
   source_id uuid not null references public.payment_sources(id) on delete restrict,
   pot_id uuid references public.pots(id) on delete set null,
-  category text not null check (category in ('food', 'transport', 'shopping', 'entertainment', 'health', 'bills', 'other')),
+  category text not null check (category in (
+    'food', 'transport', 'shopping', 'entertainment', 'health', 'bills', 'other',
+    'savings', 'unknown', 'allowance', 'parttime', 'freelance'
+  )),
   note text not null default '',
+  recurring_income_id uuid references public.recurring_incomes(id) on delete set null,
+  income_due_on date,
   created_at timestamptz not null default now()
 );
 
@@ -102,7 +122,7 @@ create index if not exists idx_transactions_user_date
 create index if not exists idx_transactions_user_source
   on public.transactions (user_id, source_id);
 
--- 7. Idempotent statement bill payments
+-- 8. Idempotent statement bill payments
 create table if not exists public.bill_payments (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -119,6 +139,49 @@ create index if not exists idx_bill_payments_user_paid_on
 
 create index if not exists idx_bill_payments_user_source
   on public.bill_payments (user_id, source_id);
+
+-- 9. Bank balance reference checkpoints (Phase 2)
+create table if not exists public.balance_checks (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  source_id uuid not null references public.payment_sources(id) on delete cascade,
+  checked_on date not null,
+  actual numeric(12, 2) not null,
+  expected_before numeric(12, 2),
+  adjustment_tx_id uuid references public.transactions(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_balance_checks_user
+  on public.balance_checks (user_id);
+
+create index if not exists idx_balance_checks_user_source_checked
+  on public.balance_checks (user_id, source_id, checked_on desc, created_at desc);
+
+-- 10. Pay-period plan items (Phase 2)
+create table if not exists public.plan_items (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  period_key text not null check (period_key ~ '^\d{4}-\d{2}$'),
+  name text not null,
+  amount numeric(12, 2) not null check (amount > 0),
+  kind text not null check (kind in ('pay', 'save')),
+  source_id uuid not null references public.payment_sources(id) on delete restrict,
+  due_on date,
+  category text not null check (category in (
+    'food', 'transport', 'shopping', 'entertainment', 'health', 'bills', 'other',
+    'savings', 'unknown', 'allowance', 'parttime', 'freelance'
+  )),
+  done_tx_id uuid references public.transactions(id) on delete set null,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_plan_items_user
+  on public.plan_items (user_id);
+
+create index if not exists idx_plan_items_user_period
+  on public.plan_items (user_id, period_key, sort_order);
 
 -- Row Level Security: 4 policies per table scoped strictly to the authenticated owner.
 alter table public.settings enable row level security;
@@ -171,6 +234,16 @@ create policy "installments_update_own" on public.installments
 create policy "installments_delete_own" on public.installments
   for delete using (user_id = auth.uid());
 
+alter table public.recurring_incomes enable row level security;
+create policy "recurring_incomes_select_own" on public.recurring_incomes
+  for select using (user_id = auth.uid());
+create policy "recurring_incomes_insert_own" on public.recurring_incomes
+  for insert with check (user_id = auth.uid());
+create policy "recurring_incomes_update_own" on public.recurring_incomes
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "recurring_incomes_delete_own" on public.recurring_incomes
+  for delete using (user_id = auth.uid());
+
 alter table public.transactions enable row level security;
 create policy "transactions_select_own" on public.transactions
   for select using (user_id = auth.uid());
@@ -189,4 +262,24 @@ create policy "bill_payments_insert_own" on public.bill_payments
 create policy "bill_payments_update_own" on public.bill_payments
   for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "bill_payments_delete_own" on public.bill_payments
+  for delete using (user_id = auth.uid());
+
+alter table public.balance_checks enable row level security;
+create policy "balance_checks_select_own" on public.balance_checks
+  for select using (user_id = auth.uid());
+create policy "balance_checks_insert_own" on public.balance_checks
+  for insert with check (user_id = auth.uid());
+create policy "balance_checks_update_own" on public.balance_checks
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "balance_checks_delete_own" on public.balance_checks
+  for delete using (user_id = auth.uid());
+
+alter table public.plan_items enable row level security;
+create policy "plan_items_select_own" on public.plan_items
+  for select using (user_id = auth.uid());
+create policy "plan_items_insert_own" on public.plan_items
+  for insert with check (user_id = auth.uid());
+create policy "plan_items_update_own" on public.plan_items
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "plan_items_delete_own" on public.plan_items
   for delete using (user_id = auth.uid());

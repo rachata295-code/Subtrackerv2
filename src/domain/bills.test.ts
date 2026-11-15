@@ -26,6 +26,9 @@ describe('billAmount', () => {
           potId: 'pot-play',
           category: 'food',
           note: 'กาแฟ',
+          createdAt: '2026-11-05T05:00:00.000Z',
+          recurringIncomeId: null,
+          incomeDueOn: null,
         },
         {
           id: 'tx-card-refund',
@@ -36,6 +39,9 @@ describe('billAmount', () => {
           potId: 'pot-play',
           category: 'other',
           note: 'เงินคืน',
+          createdAt: '2026-11-06T05:00:00.000Z',
+          recurringIncomeId: null,
+          incomeDueOn: null,
         },
       ],
       installments: [
@@ -129,6 +135,7 @@ describe('upcomingOutflows', () => {
           statementKey: '2026-11',
           amount: 107_700,
           paidOn: '2026-11-24',
+          createdAt: '2026-11-24T09:00:00.000Z',
         },
       ],
     };

@@ -41,14 +41,15 @@ describe('<SideNav>', () => {
     expect(screen.getByTestId('location').textContent).toBe('/?add=1');
   });
 
-  it('renders a labelled navigation with the 4 shared menu links', () => {
+  it('renders a labelled navigation with the 5 shared menu links', () => {
     renderSideNav('/');
     const nav = screen.getByRole('navigation', { name: 'เมนูหลัก' });
     const links = Array.from(nav.querySelectorAll('a'));
-    expect(links).toHaveLength(4);
+    expect(links).toHaveLength(5);
     expect(links.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['ภาพรวม', '/'],
       ['รายการ', '/entries'],
+      ['แผน', '/plan'],
       ['บิล & ผ่อน', '/bills'],
       ['ตั้งค่า', '/settings'],
     ]);
@@ -58,6 +59,7 @@ describe('<SideNav>', () => {
     renderSideNav('/entries');
     expect(screen.getByRole('link', { name: 'รายการ' }).getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('link', { name: 'ภาพรวม' }).getAttribute('aria-current')).toBeNull();
+    expect(screen.getByRole('link', { name: 'แผน' }).getAttribute('aria-current')).toBeNull();
     expect(screen.getByRole('link', { name: 'บิล & ผ่อน' }).getAttribute('aria-current')).toBeNull();
     expect(screen.getByRole('link', { name: 'ตั้งค่า' }).getAttribute('aria-current')).toBeNull();
   });

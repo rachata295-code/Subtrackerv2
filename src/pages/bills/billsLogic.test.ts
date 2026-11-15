@@ -91,6 +91,7 @@ describe('computeBillsCycleSummary', () => {
           statementKey: '2026-11',
           amount: 107_700,
           paidOn: '2026-11-15',
+          createdAt: '2026-11-15T09:00:00.000Z',
         },
       ],
     };

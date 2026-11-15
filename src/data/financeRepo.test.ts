@@ -172,6 +172,9 @@ describe('entity snake_case <-> camelCase mappers', () => {
       potId: 'pot-1',
       category: 'entertainment',
       note: 'หนัง',
+      createdAt: '1970-01-01T00:00:00.000Z',
+      recurringIncomeId: null,
+      incomeDueOn: null,
     });
 
     expect(
@@ -188,6 +191,7 @@ describe('entity snake_case <-> camelCase mappers', () => {
       statementKey: '2026-10',
       amount: 107700,
       paidOn: '2026-10-24',
+      createdAt: '1970-01-01T00:00:00.000Z',
     });
   });
 });
@@ -524,6 +528,7 @@ describe('financeRepo with mocked Supabase client', () => {
       statementKey: '2026-11',
       amount: 107700,
       paidOn: '2026-11-24',
+      createdAt: '1970-01-01T00:00:00.000Z',
     });
     expect(builder.insert).not.toHaveBeenCalled();
   });
