@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { thaiMonthShort } from '../../lib/thaiDate';
 import { TabBar } from '../../components/layout/TabBar';
+import { AnimatedRow, ROW_EXIT_MS } from '../../components/ui/AnimatedRow';
 import { AllocationBar } from '../../components/ui/AllocationBar';
 import { AnimatedMoney } from '../../components/ui/AnimatedMoney';
 import { BottomSheet } from '../../components/ui/BottomSheet';
@@ -33,11 +34,9 @@ import {
 } from './sampleData';
 
 // ---- timing of the "paid" row exit and the one celebration (spec 6) ---------------------------------------------
-// The celebration (check draws 300ms) plus the row leaving (180ms) stays inside 500ms.
+// The celebration (check draws 300ms) plus the row leaving (ROW_EXIT_MS, 140ms) stays inside 500ms.
 /** How long the finished check stays before the row starts to leave. */
 const CELEBRATE_MS = 320;
-/** Equals --dur-fast: the row fades out over this long, then is removed. */
-const EXIT_MS = 180;
 
 const dayText = (d: DayMonth, dueBy = false) => `${dueBy ? '≤' : ''}${d.day} ${thaiMonthShort(d.month)}`;
 const wholeBaht = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
@@ -63,7 +62,7 @@ function BillRow({ row, bill, paid, celebrate, onPay }: BillRowProps) {
     if (!paid) return;
     const leaveAt = celebrate ? CELEBRATE_MS : 0;
     const exit = setTimeout(() => setPhase('exiting'), leaveAt);
-    const gone = setTimeout(() => setPhase('gone'), leaveAt + EXIT_MS);
+    const gone = setTimeout(() => setPhase('gone'), leaveAt + ROW_EXIT_MS);
     return () => {
       clearTimeout(exit);
       clearTimeout(gone);
@@ -74,11 +73,10 @@ function BillRow({ row, bill, paid, celebrate, onPay }: BillRowProps) {
 
   const note = row.source.kind === 'bill' ? row.source.note : undefined;
   return (
-    <div
-      // opacity + translateY only (spec 6); the row is inert once paid so a late tap cannot hit it.
-      className={`transition-[opacity,transform] duration-fast ease-out motion-reduce:translate-y-0 ${
-        phase === 'exiting' ? '-translate-y-1 opacity-0' : ''
-      } ${paid ? 'pointer-events-none' : ''}`.trim()}
+    <AnimatedRow
+      // Shared row exit (opacity + translateY, spec 6). The row is inert once paid so a late tap cannot hit it.
+      leaving={phase === 'exiting'}
+      className={paid ? 'pointer-events-none' : undefined}
     >
       {/* Wrapped so ListRow is the last child of its parent: its own bottom rule (last:border-b-0) then never
           draws between the row and the action below it. */}
@@ -125,7 +123,7 @@ function BillRow({ row, bill, paid, celebrate, onPay }: BillRowProps) {
           </span>
         ) : null}
       </div>
-    </div>
+    </AnimatedRow>
   );
 }
 
@@ -173,6 +171,8 @@ interface Extra {
   id: number;
   amount: number;
   counted: boolean;
+  /** Set when undo starts: the row animates out, but its amount stops counting at once. */
+  leaving?: boolean;
 }
 
 export default function PreviewHome() {
@@ -180,9 +180,12 @@ export default function PreviewHome() {
   const [extra, setExtra] = useState<Extra[]>([]);
   const [sheetOpen, setSheetOpen] = useState(false);
   const nextId = useRef(1);
+  // After "จ่ายแล้ว" the pressed button unmounts; without a new target focus would fall to <body> and a keyboard
+  // or screen-reader user would lose their place. The owed figure is what just changed, so focus lands there.
+  const owedRef = useRef<HTMLDivElement>(null);
 
   const { start, end } = samplePeriod;
-  const d = derive(samplePeriod, paidState.paid, sumAmounts(extra.filter((e) => e.counted).map((e) => e.amount)));
+  const d = derive(samplePeriod, paidState.paid, sumAmounts(extra.filter((e) => e.counted && !e.leaving).map((e) => e.amount)));
   const allPaid = paidState.paid.size === samplePeriod.bills.length;
 
   // Unpaid bills are reserved out of the pot; a paid one is dimmed but stays, so the bar total never changes.
@@ -197,14 +200,24 @@ export default function PreviewHome() {
     { id: 'used', label: 'ใช้เล่นไปแล้ว', amount: d.spent, hue: 'stone' },
   ];
 
-  const pay = (id: BillId) => setPaidState((s) => markPaid(s, id));
+  const pay = (id: BillId) => {
+    // Move focus before the button leaves the DOM (it unmounts on the re-render this triggers).
+    owedRef.current?.focus();
+    setPaidState((s) => markPaid(s, id));
+  };
 
   const save = (amount: number, counted: boolean) => {
     const id = nextId.current++;
     setExtra((prev) => [...prev, { id, amount, counted }]);
     setSheetOpen(false);
-    // Undo removes by id, so pressing it twice (or after another save) cannot take away the wrong entry.
-    notify('บันทึกแล้ว', { undo: () => setExtra((prev) => prev.filter((e) => e.id !== id)) });
+    // Undo removes by id, so pressing it twice (or after another save) cannot take away the wrong entry. The numbers
+    // revert at once (leaving rows do not count); the row itself plays its exit, then is dropped.
+    notify('บันทึกแล้ว', {
+      undo: () => {
+        setExtra((prev) => prev.map((e) => (e.id === id ? { ...e, leaving: true } : e)));
+        setTimeout(() => setExtra((prev) => prev.filter((e) => e.id !== id)), ROW_EXIT_MS);
+      },
+    });
   };
 
   return (
@@ -259,7 +272,14 @@ export default function PreviewHome() {
 
           {/* The live region is the whole row, so a payment is announced as "ยังต้องจ่ายอีก ฿…" (label + amount)
               rather than a bare number; role=status is polite and atomic. AnimatedMoney's own region is off. */}
-          <div role="status" aria-live="polite" aria-atomic="true" className="mt-2 flex min-h-tap items-center justify-between gap-3">
+          <div
+            ref={owedRef}
+            tabIndex={-1}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="mt-2 flex min-h-tap items-center justify-between gap-3 rounded-tile focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+          >
             <span className="text-sm text-muted">ยังต้องจ่ายอีก</span>
             <div data-testid="owed">
               <AnimatedMoney value={d.owed} size="md" live={false} />
@@ -305,6 +325,22 @@ export default function PreviewHome() {
             );
           })}
         </Card>
+
+        {/* Rows the user just added. Only these animate in; the initial lists above never do. */}
+        {extra.length > 0 ? (
+          <>
+            <div className="mt-5">
+              <SectionHeader title="รายการที่เพิ่ม" />
+            </div>
+            <Card data-testid="added" padding="none" className="mt-1 px-card py-1">
+              {extra.map((e) => (
+                <AnimatedRow key={e.id} entering leaving={e.leaving}>
+                  <ListRow title="รายจ่าย" detail={e.counted ? 'นับรวมในวงเงิน' : 'ไม่นับรวม'} amount={e.amount} />
+                </AnimatedRow>
+              ))}
+            </Card>
+          </>
+        ) : null}
       </main>
 
       <TabBar />

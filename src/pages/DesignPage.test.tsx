@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import DesignPage from './DesignPage';
 
@@ -95,5 +95,24 @@ describe('<DesignPage>', () => {
     const disabled = screen.getAllByRole('button').filter((b) => (b as HTMLButtonElement).disabled);
     expect(disabled.length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button').some((b) => b.getAttribute('aria-busy') === 'true')).toBe(true);
+  });
+
+  it('adds a sample row that animates in, then removes it with the faster exit', async () => {
+    renderPage();
+    const slot = screen.getByTestId('row-motion-slot');
+    expect(within(slot).queryByText('แถวตัวอย่าง')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มแถวตัวอย่าง' }));
+    const row = within(slot).getByText('แถวตัวอย่าง').closest('.row-enter');
+    expect(row).toBeTruthy();
+    expect(row!.classList.contains('row-exit')).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'ลบแถวตัวอย่าง' }));
+    // First the exit class is applied, and only afterwards is the row unmounted.
+    expect(row!.classList.contains('row-exit')).toBe(true);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    await waitFor(() => expect(within(slot).queryByText('แถวตัวอย่าง')).toBeNull());
   });
 });

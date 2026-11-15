@@ -3,38 +3,6 @@
  * curves come from tokens.css so a single edit retunes the whole app.
  */
 
-/* Press feedback for anything tappable. Transition (not keyframes) so rapid taps can interrupt midway. */
-.press {
-  transition: transform var(--dur-press) var(--ease-out);
-}
-
-.press:active {
-  transform: scale(0.97);
-}
-
-/* Hover only where a real pointer exists, otherwise touch devices get stuck hover states. */
-@media (hover: hover) and (pointer: fine) {
-  .press-hover {
-    transition: opacity var(--dur-fast) var(--ease-out);
-  }
-  .press-hover:hover {
-    opacity: 0.85;
-  }
-}
-
-/* Reduced motion: remove movement entirely, keep only a short opacity change. */
-@media (prefers-reduced-motion: reduce) {
-  .press:active {
-    transform: none;
-  }
-  .press {
-    transition: opacity var(--dur-press) var(--ease-out);
-  }
-  .press:active {
-    opacity: 0.7;
-  }
-}
-
 /*
  * .pressable: press feedback for buttons and clickable tiles. Transition (not keyframes) so a rapid
  * second tap can interrupt midway. Disabled/busy controls must not look pressable.
@@ -43,13 +11,18 @@
   transition: transform var(--dur-press) var(--ease-out);
 }
 
-.pressable:active:not(:disabled):not([aria-disabled='true']) {
+.pressable:active:not(:disabled):not([aria-disabled='true']):not([aria-busy='true']) {
   transform: scale(0.97);
 }
 
+/* Reduced motion: no movement, but a press must still acknowledge the tap, so keep a short opacity dip. */
 @media (prefers-reduced-motion: reduce) {
-  .pressable:active:not(:disabled):not([aria-disabled='true']) {
+  .pressable {
+    transition: opacity var(--dur-press) var(--ease-out);
+  }
+  .pressable:active:not(:disabled):not([aria-disabled='true']):not([aria-busy='true']) {
     transform: none;
+    opacity: 0.7;
   }
 }
 
@@ -105,8 +78,8 @@
 
 /*
  * BottomSheet timing. Vaul drives open/close with CSS keyframes whose duration is hard-coded to 0.5s, with no
- * prop to change it, so we override it here via Vaul's own data attributes. The selectors are one attribute more
- * specific than Vaul's injected rule, so they win regardless of stylesheet order. Only the animation-* properties
+ * prop to change it, so we override it here via Vaul's own data attributes. The drawer selectors are one attribute more
+ * specific than Vaul's injected drawer rule (the overlay is handled separately below). Only the animation-* properties
  * are overridden (not transition): Vaul sets inline transitions while dragging and an !important here would
  * make the sheet lag the finger. Exit (240ms) is faster than enter (--dur-sheet) because leaving should
  * never make the user wait.
@@ -121,11 +94,17 @@
   animation-timing-function: var(--ease-drawer);
 }
 
-[data-vaul-overlay][data-state='open'] {
+/*
+ * The overlay needs one more attribute than the drawer: Vaul's own `[data-vaul-overlay][data-vaul-snap-points=false]`
+ * rule has the same specificity as `[data-vaul-overlay][data-state]` and is injected into <head> after this file, so
+ * it would win on order and keep the scrim fading for 500ms (still catching taps) after the sheet has left.
+ * Matching on the presence of data-vaul-snap-points makes ours strictly more specific (0,3,0 vs 0,2,0).
+ */
+[data-vaul-overlay][data-vaul-snap-points][data-state='open'] {
   animation-duration: var(--dur-sheet);
 }
 
-[data-vaul-overlay][data-state='closed'] {
+[data-vaul-overlay][data-vaul-snap-points][data-state='closed'] {
   animation-duration: 240ms;
 }
 
@@ -158,6 +137,74 @@
     animation-name: sheet-fade-out !important;
     animation-duration: var(--dur-press);
     animation-timing-function: var(--ease-out);
+  }
+}
+
+/*
+ * Rows the user adds or removes (spec 6): enter fades in while rising 8px over --dur-fast; exit fades out while
+ * lifting 4px, faster (--dur-press) because leaving must never make the user wait. Keyframe animations on a class
+ * toggle (not @starting-style) so this also works on Safari 17 and needs no "previous style" to transition from.
+ * Add .row-enter only to rows created after first paint, otherwise the whole list would animate on load.
+ * `backwards` holds the first frame during any delay without leaving a transform behind; exit uses `forwards`
+ * so the row stays invisible until its owner unmounts it (after --dur-press).
+ */
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes row-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.row-enter {
+  animation: row-in var(--dur-fast) var(--ease-out) backwards;
+}
+
+/* pointer-events: a row on its way out must not catch a late tap. */
+.row-exit {
+  animation: row-out var(--dur-press) var(--ease-out) forwards;
+  pointer-events: none;
+}
+
+/* Reduced motion: same timing, opacity only (no movement). */
+@keyframes row-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes row-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-enter {
+    animation-name: row-fade-in;
+  }
+  .row-exit {
+    animation-name: row-fade-out;
   }
 }
 

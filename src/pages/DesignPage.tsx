@@ -5,6 +5,7 @@ import tokensCss from '../styles/tokens.css?raw';
 import { contrastRatio, parseTokens } from '../lib/contrast';
 import type { Segment } from '../lib/allocation';
 import { ThemeSwitch } from '../components/ThemeSwitch';
+import { AnimatedRow, ROW_EXIT_MS } from '../components/ui/AnimatedRow';
 import { AllocationBar } from '../components/ui/AllocationBar';
 import { BottomSheet } from '../components/ui/BottomSheet';
 import { Button } from '../components/ui/Button';
@@ -168,6 +169,39 @@ const RANGE_OPTIONS = [
 function SegmentedDemo() {
   const [range, setRange] = useState('all');
   return <SegmentedControl label="ช่วงที่แสดง" options={RANGE_OPTIONS} value={range} onChange={setRange} />;
+}
+
+/** Adds and removes one sample row so the shared row enter/exit (spec 6) can be felt, and checked under reduced motion. */
+function RowMotionDemo() {
+  const [phase, setPhase] = useState<'absent' | 'present' | 'leaving'>('absent');
+
+  const toggle = () => {
+    if (phase === 'absent') {
+      setPhase('present');
+    } else if (phase === 'present') {
+      setPhase('leaving');
+      // The exit keyframes run ROW_EXIT_MS; only then is it safe to unmount the row.
+      setTimeout(() => setPhase('absent'), ROW_EXIT_MS);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div>
+        <Button variant="secondary" onClick={toggle} disabled={phase === 'leaving'}>
+          {phase === 'present' ? 'ลบแถวตัวอย่าง' : 'เพิ่มแถวตัวอย่าง'}
+        </Button>
+      </div>
+      {/* Reserved height so the demo does not shove the rest of the page up and down while it plays. */}
+      <div className="min-h-[60px]" data-testid="row-motion-slot">
+        {phase !== 'absent' ? (
+          <AnimatedRow entering leaving={phase === 'leaving'}>
+            <ListRow title="แถวตัวอย่าง" detail="เข้า 180ms · ออก 140ms" amount={99} />
+          </AnimatedRow>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -381,6 +415,9 @@ export default function DesignPage() {
             <ListRow title="ยังไม่ระบุยอด" detail="amount เป็น null" amount={null} />
             <ListRow title="ยอดเป็นศูนย์" amount={0} />
             <ListRow title={LONG_TITLE} detail="ชื่อยาวตัดด้วย … ส่วนยอดไม่ถูกบีบ" amount={1234567.89} />
+          </Sub>
+          <Sub label="แถวเข้า / ออก · เลื่อนขึ้น 8px เข้า, ลอยขึ้น 4px ออก (reduced motion: จางอย่างเดียว)">
+            <RowMotionDemo />
           </Sub>
         </Section>
 

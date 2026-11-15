@@ -114,6 +114,8 @@ describe('<Card>', () => {
     expect(el().className).toContain('rounded-card');
     expect(el().className).toContain('p-card');
     expect(el().className).not.toContain('shadow');
+    // Spec 7: surface + border + radius 20. Callers must not add their own border (it would double).
+    expect(el().className).toContain('border border-border');
     rerender(<Card padding="none">x</Card>);
     expect(el().className).not.toContain('p-card');
   });

@@ -226,6 +226,30 @@ describe('<PreviewHome>', () => {
     expect(screen.getByRole('img', { name: 'เหลือ ฿662.07' })).toBeTruthy();
   });
 
+  it('moves focus to the owed status region after paying, instead of dropping it to <body>', async () => {
+    renderHome();
+    const button = payButtons()[0];
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button);
+    // The pressed button unmounts on this render; focus must already have a home.
+    await waitFor(() => expect(owed().textContent).toBe('฿1,381.93'));
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(owed().closest('[role="status"]'));
+    expect(document.activeElement!.getAttribute('tabindex')).toBe('-1');
+    // Still there once the paid row has fully left.
+    await waitFor(() => expect(screen.queryByText('จ่ายบิลบัตร')).toBeNull());
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('plays the shared row exit on the paid row before removing it', async () => {
+    renderHome();
+    const title = screen.getByText('จ่ายบิลบัตร');
+    fireEvent.click(payButtons()[0]);
+    await waitFor(() => expect(title.closest('.row-exit')).toBeTruthy());
+    await waitFor(() => expect(screen.queryByText('จ่ายบิลบัตร')).toBeNull());
+  });
+
   it('announces the owed figure together with its label, not as a bare amount', async () => {
     renderHome();
     const live = owed().closest('[aria-live]')!;
@@ -286,6 +310,27 @@ describe('<PreviewHome>', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'เลิกทำ' }));
       await waitFor(() => expect(playLeft().textContent).toBe('฿662.07'));
       expect(tileAmount('ใช้เล่นไปแล้ว')).toBe('฿420.00');
+    });
+
+    it('adds a row that enters with the shared motion, and undo plays the exit before removing it', async () => {
+      renderHome();
+      expect(screen.queryByTestId('added')).toBeNull();
+      open();
+      fireEvent.change(within(dialog()).getByLabelText('จำนวนเงิน'), { target: { value: '100' } });
+      fireEvent.click(within(dialog()).getByRole('button', { name: 'บันทึก' }));
+
+      const added = await screen.findByTestId('added');
+      const row = within(added).getByText('รายจ่าย').closest('.row-enter');
+      expect(row).toBeTruthy();
+      expect(added.textContent).toContain('฿100.00');
+      // The initial upcoming rows never animate in.
+      expect(document.querySelector('[data-testid="upcoming"] .row-enter')).toBeNull();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'เลิกทำ' }));
+      await waitFor(() => expect(row!.classList.contains('row-exit')).toBe(true));
+      // The amount stops counting at once; the row is removed after its exit.
+      expect(playLeft().textContent).toBe('฿662.07');
+      await waitFor(() => expect(screen.queryByTestId('added')).toBeNull());
     });
 
     it('does not count the amount into the play budget when the switch is off', async () => {

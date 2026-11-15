@@ -71,7 +71,8 @@ describe('<ListRow>', () => {
 describe('<SectionHeader>', () => {
   it('renders the title as a heading with no action by default', () => {
     render(<SectionHeader title="กำลังจะถึง" />);
-    expect(screen.getByRole('heading', { name: 'กำลังจะถึง' })).toBeTruthy();
+    // Spec 5.4: section titles are 18px (text-section), not the 16px body size.
+    expect(screen.getByRole('heading', { name: 'กำลังจะถึง' }).className).toContain('text-section');
     expect(screen.queryByRole('button')).toBeNull();
   });
 

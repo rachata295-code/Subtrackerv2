@@ -13,6 +13,8 @@ const RULES = [
   // (?!-out): the token --ease-in-out is legitimate; only a bare ease-in (slow start, feels laggy) is banned.
   { name: 'ease-in (not ease-in-out)', re: /ease-in(?!-out)/ },
   { name: 'scale(0)', re: /scale\(0\)/ },
+  // Tailwind's spelling of the same thing: an element growing from nothing looks like it pops from a point.
+  { name: 'scale-0 (Tailwind)', re: /\bscale-0\b/ },
 ];
 
 const SCANNED = /\.(css|tsx?|jsx?|html)$/;
