@@ -79,16 +79,28 @@ export interface DayGroup {
   displayKind: MoneyKind;
 }
 
+/** Filters transactions to a pay period and optional source/pot selections (pure). */
+export function filterTransactions(
+  transactions: Transaction[],
+  period: PayPeriod,
+  sourceFilter: string,
+  potFilter: string = 'all',
+): Transaction[] {
+  return transactions.filter((tx) => {
+    if (tx.date < period.start || tx.date > period.end) return false;
+    if (sourceFilter !== 'all' && tx.sourceId !== sourceFilter) return false;
+    if (potFilter !== 'all' && tx.potId !== potFilter) return false;
+    return true;
+  });
+}
+
 export function groupTransactionsByDay(
   transactions: Transaction[],
   period: PayPeriod,
   sourceFilter: string,
+  potFilter: string = 'all',
 ): DayGroup[] {
-  const filtered = transactions.filter((tx) => {
-    if (tx.date < period.start || tx.date > period.end) return false;
-    if (sourceFilter !== 'all' && tx.sourceId !== sourceFilter) return false;
-    return true;
-  });
+  const filtered = filterTransactions(transactions, period, sourceFilter, potFilter);
 
   // Sort newest date first while showing later entries within the same day at the top.
   const ordered = [...filtered].reverse().sort((a, b) => b.date.localeCompare(a.date));
