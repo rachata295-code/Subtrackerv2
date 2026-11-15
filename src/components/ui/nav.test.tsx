@@ -42,6 +42,20 @@ describe('<SegmentedControl>', () => {
     const indicator = screen.getByTestId('segmented-indicator');
     expect(indicator.style.transform).toBe('translateX(200%)');
   });
+
+  it('uses compact non-wrapping sizing when rendering 4 or more segments so mobile labels never clip', () => {
+    const fourOptions = [
+      { value: 'all', label: 'ทั้งหมด' },
+      { value: 'bank', label: 'บัญชี' },
+      { value: 'card', label: 'บัตรเครดิต' },
+      { value: 'paylater', label: 'SPayLater' },
+    ];
+    render(<SegmentedControl label="กรองช่องทาง" options={fourOptions} value="all" onChange={() => {}} />);
+    const tab = screen.getByRole('tab', { name: 'SPayLater' });
+    expect(tab.className).toContain('text-sm');
+    expect(tab.className).toContain('px-1.5');
+    expect(tab.className).toContain('truncate');
+  });
 });
 
 describe('<TabBar>', () => {
