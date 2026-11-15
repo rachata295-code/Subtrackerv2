@@ -10,6 +10,10 @@ const VALID_CATEGORIES = new Set([
   'other',
 ]);
 
+// v2 default pot names (seed_defaults). Kept as constants so mapper and apply step cannot drift apart.
+export const POT_PLAY = 'ใช้ตามใจ';
+export const POT_ESSENTIAL = 'ใช้จ่ายจำเป็น';
+
 const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const YEAR_MONTH_RE = /^(\d{4})-(\d{2})$/;
 const PG_TIMESTAMP_RE = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}(?:\.\d+)?)([+-]\d{2}(?::?\d{2})?|Z)?$/i;
@@ -342,7 +346,7 @@ export function mapV1CsvSet(csvTexts, options = {}) {
         count: airpodsCount,
         firstChargeDate,
         sourceKind: 'paylater',
-        potName: 'ใช้ตามใจ',
+        potName: POT_PLAY,
       });
       continue;
     }
@@ -372,12 +376,14 @@ export function mapV1CsvSet(csvTexts, options = {}) {
       billingDay,
       billingMonth,
       sourceKind: 'credit_card',
-      potName: 'ใช้ตามใจ',
+      potName: POT_PLAY,
       active: true,
     });
   }
 
-  // 3. Map budget_entries -> v2 transactions (out, cash->bank / card->credit_card, pot ใช้ตามใจ)
+  // 3. Map budget_entries -> v2 transactions (out).
+  // Cash is everyday spending (food, transport): it belongs to the bank + 'ใช้จ่ายจำเป็น' pot. Only card
+  // spending is discretionary: sending cash there drove the 3,000 'ใช้ตามใจ' pot deep negative.
   const transactions = [];
   let beforeBudgetTotalSatang = 0;
 
@@ -387,9 +393,14 @@ export function mapV1CsvSet(csvTexts, options = {}) {
 
     const paymentType = String(row.payment_type ?? '').trim();
     let sourceKind;
-    if (paymentType === 'cash') sourceKind = 'bank';
-    else if (paymentType === 'card') sourceKind = 'credit_card';
-    else throw new Error(`payment_type ไม่ถูกต้องใน budget_entries: ${paymentType}`);
+    let potName;
+    if (paymentType === 'cash') {
+      sourceKind = 'bank';
+      potName = POT_ESSENTIAL;
+    } else if (paymentType === 'card') {
+      sourceKind = 'credit_card';
+      potName = POT_PLAY;
+    } else throw new Error(`payment_type ไม่ถูกต้องใน budget_entries: ${paymentType}`);
 
     let category = String(row.category ?? '').trim();
     if (!VALID_CATEGORIES.has(category)) {
@@ -409,7 +420,7 @@ export function mapV1CsvSet(csvTexts, options = {}) {
       amountSatang,
       direction: 'out',
       sourceKind,
-      potName: 'ใช้ตามใจ',
+      potName,
       category,
       note: formatTransactionNote(row.name, row.note, marker),
     });
@@ -462,6 +473,10 @@ export function mapV1CsvSet(csvTexts, options = {}) {
   const afterInstPerPeriodSatang = installments.reduce((s, item) => s + item.perInstallmentSatang, 0);
   const txOut = transactions.filter((t) => t.direction === 'out');
   const txIn = transactions.filter((t) => t.direction === 'in');
+  const outByPot = (potName) => {
+    const rows = txOut.filter((t) => t.potName === potName);
+    return { count: rows.length, totalSatang: rows.reduce((s, t) => s + t.amountSatang, 0) };
+  };
 
   const summary = {
     before: {
@@ -501,6 +516,11 @@ export function mapV1CsvSet(csvTexts, options = {}) {
       transactionsOut: {
         count: txOut.length,
         totalSatang: txOut.reduce((s, t) => s + t.amountSatang, 0),
+      },
+      // Per-pot split so the owner can sanity-check that cash and card landed in the intended pots.
+      transactionsOutByPot: {
+        [POT_ESSENTIAL]: outByPot(POT_ESSENTIAL),
+        [POT_PLAY]: outByPot(POT_PLAY),
       },
       transactionsIn: {
         count: txIn.length,
@@ -565,6 +585,14 @@ export function formatDryRunReport(mapped, { applyMode = false } = {}) {
   );
   lines.push(
     `  - transactions(out): ${after.transactionsOut.count} แถว | รวม = ${formatBaht(after.transactionsOut.totalSatang)} บาท`,
+  );
+  const essentialOut = after.transactionsOutByPot[POT_ESSENTIAL];
+  const playOut = after.transactionsOutByPot[POT_PLAY];
+  lines.push(
+    `      · pot ${POT_ESSENTIAL} (cash -> บัญชี): ${essentialOut.count} แถว | รวม = ${formatBaht(essentialOut.totalSatang)} บาท`,
+  );
+  lines.push(
+    `      · pot ${POT_PLAY} (card -> บัตรเครดิต): ${playOut.count} แถว | รวม = ${formatBaht(playOut.totalSatang)} บาท`,
   );
   lines.push(
     `  - transactions(in) : ${after.transactionsIn.count} แถว | รวม = ${formatBaht(after.transactionsIn.totalSatang)} บาท (บัญชี)`,
@@ -659,19 +687,27 @@ export async function applyMigration(mapped, client, userId) {
     sources.find((s) => s.kind === 'credit_card') ?? sources.find((s) => s.name.includes('บัตร'));
   const paylaterSource =
     sources.find((s) => s.kind === 'paylater') ?? sources.find((s) => s.name === 'SPayLater');
-  const playPot = pots.find((p) => p.name === 'ใช้ตามใจ');
+  const playPot = pots.find((p) => p.name === POT_PLAY);
+  const essentialPot = pots.find((p) => p.name === POT_ESSENTIAL);
 
   if (!bankSource) throw new Error('ไม่พบ payment_source ชนิด bank (บัญชี) ในฐานข้อมูล v2');
   if (!cardSource) throw new Error('ไม่พบ payment_source ชนิด credit_card (บัตรเครดิต) ในฐานข้อมูล v2');
   if (mapped.installments.length > 0 && !paylaterSource) {
     throw new Error('ไม่พบ payment_source ชนิด paylater (SPayLater) ในฐานข้อมูล v2');
   }
-  if (!playPot) throw new Error('ไม่พบ pot ชื่อ "ใช้ตามใจ" ในฐานข้อมูล v2');
+  if (!playPot) throw new Error(`ไม่พบ pot ชื่อ "${POT_PLAY}" ในฐานข้อมูล v2`);
+  if (!essentialPot) throw new Error(`ไม่พบ pot ชื่อ "${POT_ESSENTIAL}" ในฐานข้อมูล v2`);
 
   const sourceIdByKind = {
     bank: bankSource.id,
     credit_card: cardSource.id,
     paylater: paylaterSource?.id ?? null,
+  };
+
+  // Unknown names resolve to null (= "separate", not counted in any pot) rather than guessing a pot.
+  const potIdByName = {
+    [POT_PLAY]: playPot.id,
+    [POT_ESSENTIAL]: essentialPot.id,
   };
 
   let settingsAction = 'skipped';
@@ -702,7 +738,7 @@ export async function applyMigration(mapped, client, userId) {
       billing_day: s.billingDay,
       billing_month: s.billingMonth,
       source_id: sourceIdByKind[s.sourceKind],
-      pot_id: s.potName === 'ใช้ตามใจ' ? playPot.id : null,
+      pot_id: potIdByName[s.potName] ?? null,
       active: s.active,
     }));
 
@@ -717,7 +753,7 @@ export async function applyMigration(mapped, client, userId) {
       count: inst.count,
       first_charge_date: inst.firstChargeDate,
       source_id: sourceIdByKind[inst.sourceKind],
-      pot_id: inst.potName === 'ใช้ตามใจ' ? playPot.id : null,
+      pot_id: potIdByName[inst.potName] ?? null,
     }));
 
   const existingTxIds = new Set(existingTxs.map((r) => r.id));
@@ -734,7 +770,7 @@ export async function applyMigration(mapped, client, userId) {
       amount: satangToNumeric(tx.amountSatang),
       direction: tx.direction,
       source_id: sourceIdByKind[tx.sourceKind],
-      pot_id: tx.potName === 'ใช้ตามใจ' ? playPot.id : null,
+      pot_id: potIdByName[tx.potName] ?? null,
       category: tx.category,
       note: tx.note,
     }));

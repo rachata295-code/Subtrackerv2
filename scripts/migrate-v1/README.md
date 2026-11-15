@@ -48,7 +48,7 @@ node scripts/migrate-v1/migrate.mjs --apply --airpods-count 10 --airpods-first 2
 |---|---|
 | `subscriptions` (ทั่วไป) | `subscriptions` · ช่องทาง `บัตรเครดิต` · ก้อน `ใช้ตามใจ` |
 | `subscriptions` (ชื่อมี `Airpod`) | `installments` · ช่องทาง `SPayLater` · ก้อน `ใช้ตามใจ` |
-| `budget_entries` (`payment_type = cash`) | `transactions` (`out`) · ช่องทาง `บัญชี` · ก้อน `ใช้ตามใจ` · `category` ตรงชื่อ |
+| `budget_entries` (`payment_type = cash`) | `transactions` (`out`) · ช่องทาง `บัญชี` · ก้อน `ใช้จ่ายจำเป็น` · `category` ตรงชื่อ |
 | `budget_entries` (`payment_type = card`) | `transactions` (`out`) · ช่องทาง `บัตรเครดิต` · ก้อน `ใช้ตามใจ` · `category` ตรงชื่อ |
 | `transfer_entries` (`direction = incoming`) | `transactions` (`in`) · ช่องทาง `บัญชี` · `category = other` |
 | `transfer_entries` (`direction != incoming`) | ข้ามและรายงานในสรุป |

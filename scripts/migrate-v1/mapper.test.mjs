@@ -124,7 +124,7 @@ describe('mapV1CsvSet with __fixtures__', () => {
       amountSatang: 8_500,
       direction: 'out',
       sourceKind: 'bank',
-      potName: 'ใช้ตามใจ',
+      potName: 'ใช้จ่ายจำเป็น', // cash = everyday spending, must not eat the discretionary pot
       category: 'food',
     });
     expect(cashFood.note).toContain('ชานม');
@@ -174,12 +174,40 @@ describe('mapV1CsvSet with __fixtures__', () => {
     expect(result.summary.after.transactionsOut).toEqual({ count: 4, totalSatang: 70_250 });
     expect(result.summary.after.transactionsIn).toEqual({ count: 1, totalSatang: 150_000 });
     expect(result.summary.skipped.outgoingTransfers).toEqual({ count: 1, totalSatang: 20_000 });
+    // cash 85.00 + 47.50 -> ใช้จ่ายจำเป็น · card 220.00 + 350.00 -> ใช้ตามใจ
+    expect(result.summary.after.transactionsOutByPot).toEqual({
+      ใช้จ่ายจำเป็น: { count: 2, totalSatang: 13_250 },
+      ใช้ตามใจ: { count: 2, totalSatang: 57_000 },
+    });
 
     const report = formatDryRunReport(result);
     expect(report).toContain('DRY-RUN');
     expect(report).toContain('subscriptions');
     expect(report).toContain('installments');
     expect(report).toContain('10,200.00');
+    expect(report).toMatch(/pot ใช้จ่ายจำเป็น .*2 แถว \| รวม = 132\.50/);
+    expect(report).toMatch(/pot ใช้ตามใจ .*2 แถว \| รวม = 570\.00/);
+  });
+
+  it('routes cash to bank + ใช้จ่ายจำเป็น and card to credit_card + ใช้ตามใจ', () => {
+    const result = mapV1CsvSet(
+      {
+        subscriptions: '',
+        budget_settings: '',
+        budget_entries: readFixture('budget_entries.csv'),
+        transfer_entries: '',
+      },
+      { userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+    );
+
+    const outs = result.transactions.filter((t) => t.direction === 'out');
+    expect(outs).toHaveLength(4);
+    for (const tx of outs) {
+      const key = `${tx.sourceKind}/${tx.potName}`;
+      expect(['bank/ใช้จ่ายจำเป็น', 'credit_card/ใช้ตามใจ']).toContain(key);
+    }
+    expect(outs.filter((t) => t.sourceKind === 'bank')).toHaveLength(2);
+    expect(outs.filter((t) => t.sourceKind === 'credit_card')).toHaveLength(2);
   });
 
   it('produces deterministic IDs and markers even without id column in CSV', () => {
@@ -342,6 +370,14 @@ describe('applyMigration idempotency', () => {
     expect(client.db.installments).toHaveLength(1);
     expect(client.db.transactions).toHaveLength(5);
 
+    // Pot split lands in the database: cash -> pot-ess on the bank, card -> pot-play on the card.
+    const outs = client.db.transactions.filter((t) => t.direction === 'out');
+    expect(outs.filter((t) => t.source_id === 'src-bank').every((t) => t.pot_id === 'pot-ess')).toBe(true);
+    expect(outs.filter((t) => t.source_id === 'src-card').every((t) => t.pot_id === 'pot-play')).toBe(true);
+    expect(outs.filter((t) => t.pot_id === 'pot-ess')).toHaveLength(2);
+    expect(outs.filter((t) => t.pot_id === 'pot-play')).toHaveLength(2);
+    expect(client.db.transactions.find((t) => t.direction === 'in').pot_id).toBeNull();
+
     // Re-run with the exact same CSVs — must not insert any duplicates.
     const second = await applyMigration(mapped, client, userId);
     expect(second.inserted).toEqual({
@@ -388,6 +424,22 @@ describe('applyMigration idempotency', () => {
     expect(res.inserted.transactions).toBe(3);
     expect(res.skipped.transactions).toBe(1);
     expect(client.db.transactions).toHaveLength(4);
+  });
+
+  it('throws a clear Thai error when a required pot is missing', async () => {
+    const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const mapped = mapV1CsvSet(
+      { subscriptions: '', budget_settings: '', budget_entries: readFixture('budget_entries.csv'), transfer_entries: '' },
+      { userId },
+    );
+
+    const noEssential = createFakeSupabaseClient();
+    noEssential.db.pots = noEssential.db.pots.filter((p) => p.name !== 'ใช้จ่ายจำเป็น');
+    await expect(applyMigration(mapped, noEssential, userId)).rejects.toThrow('ไม่พบ pot ชื่อ "ใช้จ่ายจำเป็น"');
+
+    const noPlay = createFakeSupabaseClient();
+    noPlay.db.pots = noPlay.db.pots.filter((p) => p.name !== 'ใช้ตามใจ');
+    await expect(applyMigration(mapped, noPlay, userId)).rejects.toThrow('ไม่พบ pot ชื่อ "ใช้ตามใจ"');
   });
 
   it('updates settings.salary when changed and reports unchanged on repeat apply', async () => {
