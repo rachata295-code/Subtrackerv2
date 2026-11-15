@@ -1,18 +1,20 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { billAmount } from '../../domain';
+import { AnimatedRow, ROW_EXIT_MS } from '../../components/ui/AnimatedRow';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { DateBadge } from '../../components/ui/DateBadge';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { ListRow } from '../../components/ui/ListRow';
 import { Money } from '../../components/ui/Money';
+import { Pill } from '../../components/ui/Pill';
 import { notify } from '../../components/ui/Toaster';
 import { HUE_TILE } from '../../components/ui/hue';
 import { useDeleteBillPayment, usePayBill } from '../../hooks/useFinance';
 import type { FinanceData, ISODate, PaymentSource } from '../../types/finance';
 import {
   formatCycleRange,
+  formatRepoError,
   formatStatementKeyThai,
   formatThaiDateShort,
   getCycleCharges,
@@ -26,6 +28,8 @@ interface SourceBillCardProps {
   data: FinanceData;
   today: ISODate;
 }
+
+type PayTransitionPhase = 'idle' | 'exiting' | 'paid' | 'paid-static' | 'restored';
 
 function SourceBillCard({ src, data, today }: SourceBillCardProps) {
   const payBill = usePayBill();
@@ -43,6 +47,27 @@ function SourceBillCard({ src, data, today }: SourceBillCardProps) {
   const dueBy = src.kind === 'paylater';
   const payNoteId = `pay-note-${src.id}-${current.key}`;
 
+  // Track paid transitions after initial mount so already-paid bills render static while live payments animate.
+  const [payState, setPayState] = useState<{ wasPaid: boolean; phase: PayTransitionPhase }>(() => ({
+    wasPaid: isPaid,
+    phase: isPaid ? 'paid-static' : 'idle',
+  }));
+
+  if (payState.wasPaid !== isPaid) {
+    setPayState({
+      wasPaid: isPaid,
+      phase: isPaid ? 'exiting' : 'restored',
+    });
+  }
+
+  useEffect(() => {
+    if (payState.phase !== 'exiting') return;
+    const timer = setTimeout(() => {
+      setPayState((curr) => (curr.phase === 'exiting' ? { ...curr, phase: 'paid' } : curr));
+    }, ROW_EXIT_MS);
+    return () => clearTimeout(timer);
+  }, [payState.phase]);
+
   const handlePay = async () => {
     if (paying || isPaid) return;
     setPaying(true);
@@ -59,13 +84,13 @@ function SourceBillCard({ src, data, today }: SourceBillCardProps) {
         undo: () => {
           if (undone) return;
           undone = true;
-          void deleteBillPayment.mutateAsync(payment.id).catch(() => {
-            notify('เลิกทำไม่สำเร็จ');
+          void deleteBillPayment.mutateAsync(payment.id).catch((err) => {
+            notify(formatRepoError('เลิกทำไม่สำเร็จ', err, 'เลิกทำไม่สำเร็จ'));
           });
         },
       });
-    } catch {
-      notify('บันทึกจ่ายบิลไม่สำเร็จ กรุณาลองใหม่');
+    } catch (err) {
+      notify(formatRepoError('บันทึกจ่ายบิลไม่สำเร็จ', err, 'บันทึกจ่ายบิลไม่สำเร็จ กรุณาลองใหม่'));
     } finally {
       setPaying(false);
     }
@@ -103,19 +128,43 @@ function SourceBillCard({ src, data, today }: SourceBillCardProps) {
         </div>
 
         {!isPaid && currentAmount > 0 ? (
-          <>
+          <AnimatedRow entering={payState.phase === 'restored'}>
             <Button variant="secondary" loading={paying} onClick={handlePay} aria-describedby={payNoteId}>
               จ่ายแล้ว
             </Button>
             <span id={payNoteId} className="sr-only">
               จ่ายบิล {src.name} รอบ {formatStatementKeyThai(current.key)}
             </span>
-          </>
+          </AnimatedRow>
+        ) : payState.phase === 'exiting' ? (
+          <AnimatedRow leaving aria-hidden="true" className="pointer-events-none">
+            <span className="inline-flex min-h-tap items-center px-3 text-sm font-medium text-muted">
+              จ่ายแล้ว
+            </span>
+          </AnimatedRow>
         ) : isPaid ? (
-          <span className="inline-flex items-center gap-1 text-sm font-medium text-positive">
-            <Check size={16} strokeWidth={2} aria-hidden="true" />
-            จ่ายแล้ว
-          </span>
+          <AnimatedRow entering={payState.phase === 'paid'}>
+            <span className="inline-flex items-center gap-1 text-sm font-medium text-positive">
+              {payState.phase === 'paid' ? (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path className="check-draw" pathLength={1} d="M5 12.5l4.5 4.5L19 7.5" />
+                </svg>
+              ) : (
+                <Check size={16} strokeWidth={2} aria-hidden="true" />
+              )}
+              จ่ายแล้ว
+            </span>
+          </AnimatedRow>
         ) : null}
       </div>
 
@@ -125,15 +174,31 @@ function SourceBillCard({ src, data, today }: SourceBillCardProps) {
           <div className="flex flex-col">
             {charges.map((item) => {
               const parts = parseIsoDate(item.date);
+              const pot = item.potId ? data.pots.find((p) => p.id === item.potId) : undefined;
+              const potLabel = pot ? pot.name : 'แยก';
+              const potHue = pot ? pot.hue : 'stone';
               return (
-                <ListRow
+                <div
                   key={item.id}
-                  leading={<DateBadge day={parts.day} month={parts.month0} />}
-                  title={item.title}
-                  detail={item.detail}
-                  amount={satangToBaht(item.amount)}
-                  amountKind="spend"
-                />
+                  data-testid={`bill-charge-${item.id}`}
+                  className="flex min-h-tap items-center gap-3 border-b border-rule py-2 last:border-b-0"
+                >
+                  <span className="shrink-0">
+                    <DateBadge day={parts.day} month={parts.month0} />
+                  </span>
+                  <div className="min-w-0 flex-1 lg:flex lg:items-center lg:gap-3">
+                    <span className="block truncate text-base font-medium text-text lg:min-w-0 lg:flex-1">
+                      {item.title}
+                    </span>
+                    <span className="block truncate text-sm text-muted lg:hidden">{item.detail}</span>
+                    <span className="hidden lg:inline-flex lg:shrink-0 lg:items-center lg:gap-1.5">
+                      <Pill hue={potHue}>{potLabel}</Pill>
+                    </span>
+                  </div>
+                  <span className="shrink-0 whitespace-nowrap text-right">
+                    <Money value={satangToBaht(item.amount)} kind="spend" />
+                  </span>
+                </div>
               );
             })}
           </div>

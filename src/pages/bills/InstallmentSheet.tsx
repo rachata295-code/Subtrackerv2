@@ -13,6 +13,7 @@ import { SelectField } from '../../components/ui/SelectField';
 import {
   bahtToSatang,
   findOverPeriodsForInstallment,
+  formatRepoError,
   formatStatementKeyThai,
   isValidIsoDate,
   resolvePlayPot,
@@ -133,18 +134,22 @@ function InstallmentForm({
       if (initial) {
         notify('แก้ไขรายการผ่อนแล้ว', {
           undo: () => {
-            void upsertInstallment.mutateAsync(initial);
+            void upsertInstallment.mutateAsync(initial).catch((err) => {
+              notify(formatRepoError('เลิกทำไม่สำเร็จ', err, 'เลิกทำไม่สำเร็จ'));
+            });
           },
         });
       } else {
         notify('บันทึกรายการผ่อนแล้ว', {
           undo: () => {
-            void deleteInstallment.mutateAsync(saved.id);
+            void deleteInstallment.mutateAsync(saved.id).catch((err) => {
+              notify(formatRepoError('เลิกทำไม่สำเร็จ', err, 'เลิกทำไม่สำเร็จ'));
+            });
           },
         });
       }
-    } catch {
-      notify('บันทึกไม่สำเร็จ กรุณาลองใหม่');
+    } catch (err) {
+      notify(formatRepoError('บันทึกไม่สำเร็จ', err, 'บันทึกไม่สำเร็จ กรุณาลองใหม่'));
     } finally {
       setSaving(false);
     }
@@ -158,11 +163,13 @@ function InstallmentForm({
       onClose();
       notify('ลบรายการผ่อนแล้ว', {
         undo: () => {
-          void upsertInstallment.mutateAsync(initial);
+          void upsertInstallment.mutateAsync(initial).catch((err) => {
+            notify(formatRepoError('เลิกทำไม่สำเร็จ', err, 'เลิกทำไม่สำเร็จ'));
+          });
         },
       });
-    } catch {
-      notify('ลบไม่สำเร็จ กรุณาลองใหม่');
+    } catch (err) {
+      notify(formatRepoError('ลบไม่สำเร็จ', err, 'ลบไม่สำเร็จ กรุณาลองใหม่'));
     } finally {
       setSaving(false);
     }

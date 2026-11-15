@@ -1,4 +1,5 @@
 import {
+  billAmount,
   installmentSchedule,
   payPeriod,
   potStatus,
@@ -130,6 +131,8 @@ export interface CycleChargeItem {
   title: string;
   detail: string;
   amount: Satang;
+  sourceId: string;
+  potId: string | null;
 }
 
 export function getCycleCharges(src: PaymentSource, win: StatementWindow, data: FinanceData): CycleChargeItem[] {
@@ -143,6 +146,8 @@ export function getCycleCharges(src: PaymentSource, win: StatementWindow, data: 
         title: tx.note || CATEGORY_LABEL[tx.category],
         detail: CATEGORY_LABEL[tx.category],
         amount: tx.amount,
+        sourceId: src.id,
+        potId: tx.potId,
       });
     }
   }
@@ -157,6 +162,8 @@ export function getCycleCharges(src: PaymentSource, win: StatementWindow, data: 
         title: sub.name,
         detail: sub.frequency === 'yearly' ? 'สมาชิกรายปี' : 'สมาชิกรายเดือน',
         amount: charge.amount,
+        sourceId: src.id,
+        potId: sub.potId,
       });
     });
   }
@@ -171,6 +178,8 @@ export function getCycleCharges(src: PaymentSource, win: StatementWindow, data: 
           title: `${inst.name} งวด ${charge.n}/${inst.count}`,
           detail: `ผ่อนชำระงวดที่ ${charge.n}`,
           amount: charge.amount,
+          sourceId: src.id,
+          potId: inst.potId,
         });
       }
     }
@@ -274,4 +283,101 @@ export function satangToBaht(satang: Satang): number {
 
 export function bahtToSatang(baht: number): Satang {
   return Math.round(baht * 100);
+}
+
+export interface ChannelCycleSummary {
+  source: PaymentSource;
+  statementKey: PeriodKey | null;
+  dueDate: ISODate | null;
+  dueBy: boolean;
+  amountSatang: Satang;
+  paid: boolean;
+}
+
+export interface BillsCycleSummary {
+  channels: ChannelCycleSummary[];
+  totalSatang: Satang;
+  paidSatang: Satang;
+  unpaidSatang: Satang;
+}
+
+/**
+ * Computes per-channel and grand totals for the active billing round.
+ * Card/paylater channels rely exclusively on `billAmount` (SPEC phase 1 §4) so subscriptions and
+ * installments billed to a card are never double-counted; non-billed bank sources appear only if
+ * they carry active recurring charges in the current pay period.
+ */
+export function computeBillsCycleSummary(data: FinanceData, today: ISODate): BillsCycleSummary {
+  const activeSources = data.sources.filter((s) => !s.archived);
+  const period = payPeriod(today, data.settings.payDay);
+  const channels: ChannelCycleSummary[] = [];
+  const directChannels: ChannelCycleSummary[] = [];
+
+  for (const src of activeSources) {
+    if (src.kind === 'credit_card' || src.kind === 'paylater') {
+      const { current } = getSourceBillCycles(src, today, 0);
+      const amountSatang = billAmount(src, current.key, data);
+      const paid = data.payments.some((p) => p.sourceId === src.id && p.statementKey === current.key);
+      channels.push({
+        source: src,
+        statementKey: current.key,
+        dueDate: current.dueDate,
+        dueBy: src.kind === 'paylater',
+        amountSatang,
+        paid,
+      });
+      continue;
+    }
+
+    // Direct bank subscriptions/installments have no statement bill, so sum their charges in the current pay period.
+    let bankRecurring = 0;
+    for (const sub of data.subscriptions) {
+      if (sub.sourceId !== src.id || !sub.active) continue;
+      for (const charge of subscriptionCharges(sub, period.start, period.end)) {
+        bankRecurring += charge.amount;
+      }
+    }
+    for (const inst of data.installments) {
+      if (inst.sourceId !== src.id) continue;
+      for (const charge of installmentSchedule(inst)) {
+        if (charge.chargeDate >= period.start && charge.chargeDate <= period.end) {
+          bankRecurring += charge.amount;
+        }
+      }
+    }
+
+    if (bankRecurring > 0) {
+      directChannels.push({
+        source: src,
+        statementKey: null,
+        dueDate: null,
+        dueBy: false,
+        amountSatang: bankRecurring,
+        paid: false,
+      });
+    }
+  }
+
+  const orderedChannels = [...channels, ...directChannels];
+
+  let totalSatang = 0;
+  let paidSatang = 0;
+  for (const ch of orderedChannels) {
+    totalSatang += ch.amountSatang;
+    if (ch.paid) paidSatang += ch.amountSatang;
+  }
+
+  return {
+    channels: orderedChannels,
+    totalSatang,
+    paidSatang,
+    unpaidSatang: totalSatang - paidSatang,
+  };
+}
+
+export function formatRepoError(prefix: string, err: unknown, fallback = `${prefix} กรุณาลองใหม่`): string {
+  if (err instanceof Error && err.message.trim()) {
+    return `${prefix}: ${err.message.trim()}`;
+  }
+  return fallback;
 }
