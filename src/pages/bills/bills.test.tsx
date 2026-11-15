@@ -98,7 +98,11 @@ beforeEach(() => {
   mockLoading = false;
   mockError = null;
   payBillSpy.mockReset().mockImplementation(async (input) => {
-    const created: BillPayment = { id: 'pay-new', ...input };
+    const created: BillPayment = {
+      id: 'pay-new',
+      ...input,
+      createdAt: input.createdAt ?? '2026-11-15T05:00:00.000Z',
+    };
     if (mockData) {
       const next = { ...mockData, payments: [...mockData.payments, created] };
       mockData = next;

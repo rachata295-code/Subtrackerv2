@@ -84,9 +84,19 @@ function renderOverview(options?: {
 
 beforeEach(() => {
   mockFinanceState = { data: financeFixture, isLoading: false, error: null };
-  createTxSpy = vi.fn(async (input) => ({ id: 'tx-new-1', ...input }));
+  createTxSpy = vi.fn(async (input) => ({
+    id: 'tx-new-1',
+    ...input,
+    createdAt: input.createdAt ?? `${input.date}T12:00:00.000Z`,
+    recurringIncomeId: input.recurringIncomeId ?? null,
+    incomeDueOn: input.incomeDueOn ?? null,
+  }));
   deleteTxSpy = vi.fn(async () => {});
-  payBillSpy = vi.fn(async (input) => ({ id: 'pay-new-1', ...input }));
+  payBillSpy = vi.fn(async (input) => ({
+    id: 'pay-new-1',
+    ...input,
+    createdAt: input.createdAt ?? `${input.paidOn}T12:00:00.000Z`,
+  }));
   deleteBillPaymentSpy = vi.fn(async () => {});
 
   vi.spyOn(financeHooks, 'useFinanceData').mockImplementation(() => mockFinanceState);
@@ -172,6 +182,9 @@ describe('<OverviewPage>', () => {
             potId: 'pot-essential',
             category: 'other',
             note: 'ค่าห้อง',
+            createdAt: '2026-11-12T10:00:00.000Z',
+            recurringIncomeId: null,
+            incomeDueOn: null,
           },
         ],
       },
@@ -357,6 +370,7 @@ describe('<OverviewPage>', () => {
             statementKey: '2026-11',
             amount: 107_700,
             paidOn: TODAY,
+            createdAt: '2026-11-15T12:00:00.000Z',
           },
         ],
       },
@@ -429,9 +443,9 @@ describe('<OverviewPage>', () => {
   it('caps recent transactions at 5 latest entries of the current period and navigates to /entries', () => {
     mockMatchMedia(1280);
     const extraTx: Transaction[] = [
-      { id: 'tx-nov-1', date: '2026-11-10', amount: 5_000, direction: 'out', sourceId: 'src-bank', potId: 'pot-play', category: 'food', note: 'ข้าวเช้า' },
-      { id: 'tx-nov-2', date: '2026-11-11', amount: 6_000, direction: 'out', sourceId: 'src-bank', potId: 'pot-play', category: 'food', note: 'กาแฟ' },
-      { id: 'tx-nov-3', date: '2026-11-15', amount: 7_000, direction: 'out', sourceId: 'src-card', potId: 'pot-play', category: 'shopping', note: 'ของใช้' },
+      { id: 'tx-nov-1', date: '2026-11-10', amount: 5_000, direction: 'out', sourceId: 'src-bank', potId: 'pot-play', category: 'food', note: 'ข้าวเช้า', createdAt: '2026-11-10T08:00:00.000Z', recurringIncomeId: null, incomeDueOn: null },
+      { id: 'tx-nov-2', date: '2026-11-11', amount: 6_000, direction: 'out', sourceId: 'src-bank', potId: 'pot-play', category: 'food', note: 'กาแฟ', createdAt: '2026-11-11T08:00:00.000Z', recurringIncomeId: null, incomeDueOn: null },
+      { id: 'tx-nov-3', date: '2026-11-15', amount: 7_000, direction: 'out', sourceId: 'src-card', potId: 'pot-play', category: 'shopping', note: 'ของใช้', createdAt: '2026-11-15T08:00:00.000Z', recurringIncomeId: null, incomeDueOn: null },
     ];
     mockFinanceState = {
       ...mockFinanceState,
@@ -504,7 +518,13 @@ describe('<OverviewPage>', () => {
     mockMatchMedia(1280);
     // Simulate reactive query data updates when createTransaction or payBill succeeds.
     createTxSpy = vi.fn(async (input) => {
-      const created: Transaction = { id: 'tx-added-anim', ...input };
+      const created: Transaction = {
+        id: 'tx-added-anim',
+        ...input,
+        createdAt: input.createdAt ?? `${input.date}T12:00:00.000Z`,
+        recurringIncomeId: input.recurringIncomeId ?? null,
+        incomeDueOn: input.incomeDueOn ?? null,
+      };
       mockFinanceState = {
         ...mockFinanceState,
         data: {
@@ -515,7 +535,11 @@ describe('<OverviewPage>', () => {
       return created;
     });
     payBillSpy = vi.fn(async (input) => {
-      const payment: BillPayment = { id: 'pay-anim-1', ...input };
+      const payment: BillPayment = {
+        id: 'pay-anim-1',
+        ...input,
+        createdAt: input.createdAt ?? `${input.paidOn}T12:00:00.000Z`,
+      };
       mockFinanceState = {
         ...mockFinanceState,
         data: {

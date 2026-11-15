@@ -13,6 +13,7 @@ import BillsPage from './pages/bills';
 import EntriesPage from './pages/entries';
 import LoginPage from './pages/login';
 import OverviewPage from './pages/overview';
+import PlanPage from './pages/plan';
 import PreviewHome from './pages/preview/PreviewHome';
 import SettingsPage from './pages/settings';
 
@@ -43,6 +44,7 @@ export function AppRoutes() {
       <Route element={<RequireAuth />}>
         <Route element={<AppShell />}>
           <Route path="/" element={<OverviewPage />} />
+          <Route path="/plan" element={<PlanPage />} />
           <Route path="/bills" element={<BillsPage />} />
           <Route path="/entries" element={<EntriesPage />} />
           <Route path="/settings" element={<SettingsRoute />} />

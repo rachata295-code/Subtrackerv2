@@ -1,7 +1,8 @@
 import type { FinanceData } from '../types/finance';
 
 /**
- * Sample FinanceData matching the owner's real November 2026 numbers from SPEC §4.
+ * Sample FinanceData matching the owner's real November 2026 numbers from Phase 1 SPEC §4
+ * and Phase 2 SPEC §3–§6 (hotbar repeats, initial balance check, plan items, recurring incomes).
  * All monetary amounts are stored as integer satang.
  */
 export const financeFixture: FinanceData = {
@@ -122,6 +123,77 @@ export const financeFixture: FinanceData = {
       potId: 'pot-play',
       category: 'other',
       note: 'ปรับยอดยกมา',
+      createdAt: '2026-10-20T05:00:00.000Z',
+      recurringIncomeId: null,
+      incomeDueOn: null,
+    },
+    // Repeated Campus/Daily items in the 2026-10 pay period (within 60 days of 2026-11-15)
+    // placed in pot-essential (rollover: false) and before the 2026-11-10 balance check
+    // so hotbarItems has ข้าวมันไก่ 45 ×3 and ชานม 85 ×2 while keeping 2026-11 figures unchanged.
+    {
+      id: 'tx-oct-rice-1',
+      date: '2026-11-02',
+      amount: 4_500,
+      direction: 'out',
+      sourceId: 'src-bank',
+      potId: 'pot-essential',
+      category: 'food',
+      note: 'ข้าวมันไก่',
+      createdAt: '2026-11-02T05:00:00.000Z',
+      recurringIncomeId: null,
+      incomeDueOn: null,
+    },
+    {
+      id: 'tx-oct-tea-1',
+      date: '2026-11-03',
+      amount: 8_500,
+      direction: 'out',
+      sourceId: 'src-bank',
+      potId: 'pot-essential',
+      category: 'food',
+      note: 'ชานม',
+      createdAt: '2026-11-03T06:00:00.000Z',
+      recurringIncomeId: null,
+      incomeDueOn: null,
+    },
+    {
+      id: 'tx-oct-rice-2',
+      date: '2026-11-05',
+      amount: 4_500,
+      direction: 'out',
+      sourceId: 'src-bank',
+      potId: 'pot-essential',
+      category: 'food',
+      note: 'ข้าวมันไก่',
+      createdAt: '2026-11-05T05:00:00.000Z',
+      recurringIncomeId: null,
+      incomeDueOn: null,
+    },
+    {
+      id: 'tx-oct-tea-2',
+      date: '2026-11-06',
+      amount: 8_500,
+      direction: 'out',
+      sourceId: 'src-bank',
+      potId: 'pot-essential',
+      category: 'food',
+      note: 'ชานม',
+      createdAt: '2026-11-06T06:00:00.000Z',
+      recurringIncomeId: null,
+      incomeDueOn: null,
+    },
+    {
+      id: 'tx-oct-rice-3',
+      date: '2026-11-08',
+      amount: 4_500,
+      direction: 'out',
+      sourceId: 'src-bank',
+      potId: 'pot-essential',
+      category: 'food',
+      note: 'ข้าวมันไก่',
+      createdAt: '2026-11-08T05:00:00.000Z',
+      recurringIncomeId: null,
+      incomeDueOn: null,
     },
     {
       id: 'tx-nov-movie',
@@ -132,6 +204,9 @@ export const financeFixture: FinanceData = {
       potId: 'pot-play',
       category: 'entertainment',
       note: 'หนัง',
+      createdAt: '2026-11-11T12:00:00.000Z',
+      recurringIncomeId: null,
+      incomeDueOn: null,
     },
     {
       id: 'tx-nov-tea',
@@ -142,6 +217,9 @@ export const financeFixture: FinanceData = {
       potId: 'pot-play',
       category: 'food',
       note: 'ชานม',
+      createdAt: '2026-11-12T06:00:00.000Z',
+      recurringIncomeId: null,
+      incomeDueOn: null,
     },
     {
       id: 'tx-nov-game',
@@ -152,6 +230,9 @@ export const financeFixture: FinanceData = {
       potId: 'pot-play',
       category: 'entertainment',
       note: 'เกม',
+      createdAt: '2026-11-14T14:00:00.000Z',
+      recurringIncomeId: null,
+      incomeDueOn: null,
     },
   ],
   payments: [
@@ -161,6 +242,7 @@ export const financeFixture: FinanceData = {
       statementKey: '2026-10',
       amount: 107_700,
       paidOn: '2026-10-24',
+      createdAt: '2026-10-24T09:00:00.000Z',
     },
     {
       id: 'pay-oct-spay',
@@ -168,6 +250,62 @@ export const financeFixture: FinanceData = {
       statementKey: '2026-10',
       amount: 138_193,
       paidOn: '2026-11-09',
+      createdAt: '2026-11-09T09:00:00.000Z',
+    },
+  ],
+  balanceChecks: [
+    {
+      id: 'chk-nov-init',
+      sourceId: 'src-bank',
+      checkedOn: '2026-11-10',
+      actual: 510_000,
+      expectedBefore: null,
+      adjustmentTxId: null,
+      createdAt: '2026-11-10T08:00:00.000Z',
+    },
+  ],
+  planItems: [
+    {
+      id: 'plan-dorm',
+      periodKey: '2026-11',
+      name: 'ค่าหอ',
+      amount: 150_000,
+      kind: 'pay',
+      sourceId: 'src-bank',
+      dueOn: '2026-11-25',
+      category: 'bills',
+      doneTxId: null,
+      sortOrder: 1,
+    },
+    {
+      id: 'plan-save',
+      periodKey: '2026-11',
+      name: 'เก็บ',
+      amount: 200_000,
+      kind: 'save',
+      sourceId: 'src-bank',
+      dueOn: '2026-11-28',
+      category: 'savings',
+      doneTxId: null,
+      sortOrder: 2,
+    },
+  ],
+  recurringIncomes: [
+    {
+      id: 'inc-mom-10',
+      name: 'เงินจากแม่',
+      amount: 510_000,
+      dayOfMonth: 10,
+      sourceId: 'src-bank',
+      active: true,
+    },
+    {
+      id: 'inc-mom-24',
+      name: 'เงินจากแม่',
+      amount: 510_000,
+      dayOfMonth: 24,
+      sourceId: 'src-bank',
+      active: true,
     },
   ],
 };

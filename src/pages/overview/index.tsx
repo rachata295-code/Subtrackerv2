@@ -25,20 +25,21 @@ import {
   usePayBill,
 } from '../../hooks/useFinance';
 import type { Segment } from '../../lib/allocation';
-import type {
-  Category,
-  CreateTransactionInput,
-  FinanceData,
-  ISODate,
-  Outflow,
-  PayPeriod,
-  PaymentSource,
-  PeriodKey,
-  Pot,
-  PotStatus,
-  Satang,
-  StatementWindow,
-  Transaction,
+import {
+  CATEGORY_LABELS,
+  type Category,
+  type CreateTransactionInput,
+  type FinanceData,
+  type ISODate,
+  type Outflow,
+  type PayPeriod,
+  type PaymentSource,
+  type PeriodKey,
+  type Pot,
+  type PotStatus,
+  type Satang,
+  type StatementWindow,
+  type Transaction,
 } from '../../types/finance';
 import {
   addDays,
@@ -55,15 +56,7 @@ const UPCOMING_CAP = 5;
 const RECENT_CAP = 5;
 const wholeBaht = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 
-const CATEGORY_LABEL: Record<Category, string> = {
-  food: 'อาหาร',
-  transport: 'เดินทาง',
-  shopping: 'ช้อปปิ้ง',
-  entertainment: 'บันเทิง',
-  health: 'สุขภาพ',
-  bills: 'บิล/ค่าบริการ',
-  other: 'อื่นๆ',
-};
+const CATEGORY_LABEL: Record<Category, string> = CATEGORY_LABELS;
 
 const toBaht = (satang: Satang): number => satang / 100;
 

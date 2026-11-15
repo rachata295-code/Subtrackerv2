@@ -1,15 +1,21 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../lib/supabase';
 import type {
+  BalanceCheck,
   BillPayment,
   Category,
+  ConfirmIncomeInput,
+  CreateBalanceCheckInput,
   CreateTransactionInput,
+  CreateTransactionsInput,
   FinanceData,
   Hue,
   Installment,
   PayBillInput,
   PaymentSource,
+  PlanItem,
   Pot,
+  RecurringIncome,
   Satang,
   Settings,
   SourceKind,
@@ -17,7 +23,9 @@ import type {
   Transaction,
   UpdateSettingsInput,
   UpsertInstallmentInput,
+  UpsertPlanItemInput,
   UpsertPotInput,
+  UpsertRecurringIncomeInput,
   UpsertSourceInput,
   UpsertSubscriptionInput,
 } from '../types/finance';
@@ -80,6 +88,9 @@ export interface TransactionRow {
   pot_id: string | null;
   category: Category;
   note: string;
+  created_at?: string;
+  recurring_income_id?: string | null;
+  income_due_on?: string | null;
 }
 
 export interface BillPaymentRow {
@@ -88,6 +99,39 @@ export interface BillPaymentRow {
   statement_key: string;
   amount: string | number;
   paid_on: string;
+  created_at?: string;
+}
+
+export interface BalanceCheckRow {
+  id: string;
+  source_id: string;
+  checked_on: string;
+  actual: string | number;
+  expected_before: string | number | null;
+  adjustment_tx_id: string | null;
+  created_at: string;
+}
+
+export interface PlanItemRow {
+  id: string;
+  period_key: string;
+  name: string;
+  amount: string | number;
+  kind: 'pay' | 'save';
+  source_id: string;
+  due_on: string | null;
+  category: Category;
+  done_tx_id: string | null;
+  sort_order: number;
+}
+
+export interface RecurringIncomeRow {
+  id: string;
+  name: string;
+  amount: string | number;
+  day_of_month: number;
+  source_id: string;
+  active: boolean;
 }
 
 const SETTINGS_COLUMNS = 'user_id, salary, pay_day, budget_start_period';
@@ -98,8 +142,14 @@ const SUBSCRIPTION_COLUMNS =
   'id, name, amount, frequency, billing_day, billing_month, source_id, pot_id, active';
 const INSTALLMENT_COLUMNS =
   'id, name, per_installment, count, first_charge_date, source_id, pot_id';
-const TRANSACTION_COLUMNS = 'id, date, amount, direction, source_id, pot_id, category, note';
-const BILL_PAYMENT_COLUMNS = 'id, source_id, statement_key, amount, paid_on';
+const TRANSACTION_COLUMNS =
+  'id, date, amount, direction, source_id, pot_id, category, note, created_at, recurring_income_id, income_due_on';
+const BILL_PAYMENT_COLUMNS = 'id, source_id, statement_key, amount, paid_on, created_at';
+const BALANCE_CHECK_COLUMNS =
+  'id, source_id, checked_on, actual, expected_before, adjustment_tx_id, created_at';
+const PLAN_ITEM_COLUMNS =
+  'id, period_key, name, amount, kind, source_id, due_on, category, done_tx_id, sort_order';
+const RECURRING_INCOME_COLUMNS = 'id, name, amount, day_of_month, source_id, active';
 
 function wrapRepoError(message: string, cause: unknown): Error {
   // Assign cause explicitly so the code compiles under tsconfig ES2020 lib while preserving standard Error.cause.
@@ -250,10 +300,13 @@ export function mapTransactionFromRow(row: TransactionRow): Transaction {
     potId: row.pot_id,
     category: row.category,
     note: row.note,
+    createdAt: row.created_at ?? '1970-01-01T00:00:00.000Z',
+    recurringIncomeId: row.recurring_income_id ?? null,
+    incomeDueOn: row.income_due_on ?? null,
   };
 }
 
-export function mapTransactionToRow(input: Omit<Transaction, 'id'>): Omit<TransactionRow, 'id'> {
+export function mapTransactionToRow(input: CreateTransactionInput): Omit<TransactionRow, 'id'> {
   return {
     date: input.date,
     amount: satangToNumeric(input.amount),
@@ -262,6 +315,8 @@ export function mapTransactionToRow(input: Omit<Transaction, 'id'>): Omit<Transa
     pot_id: input.potId,
     category: input.category,
     note: input.note,
+    ...(input.recurringIncomeId !== undefined ? { recurring_income_id: input.recurringIncomeId } : {}),
+    ...(input.incomeDueOn !== undefined ? { income_due_on: input.incomeDueOn } : {}),
   };
 }
 
@@ -272,10 +327,11 @@ export function mapBillPaymentFromRow(row: BillPaymentRow): BillPayment {
     statementKey: row.statement_key,
     amount: numericToSatang(row.amount),
     paidOn: row.paid_on,
+    createdAt: row.created_at ?? '1970-01-01T00:00:00.000Z',
   };
 }
 
-export function mapBillPaymentToRow(input: Omit<BillPayment, 'id'>): Omit<BillPaymentRow, 'id'> {
+export function mapBillPaymentToRow(input: PayBillInput): Omit<BillPaymentRow, 'id'> {
   return {
     source_id: input.sourceId,
     statement_key: input.statementKey,
@@ -292,7 +348,18 @@ export async function seedDefaults(client: SupabaseClient = getSupabaseClient())
 }
 
 export async function loadFinanceData(client: SupabaseClient = getSupabaseClient()): Promise<FinanceData> {
-  const [settingsRes, sourcesRes, potsRes, subsRes, instsRes, txRes, paymentsRes] = await Promise.all([
+  const [
+    settingsRes,
+    sourcesRes,
+    potsRes,
+    subsRes,
+    instsRes,
+    txRes,
+    paymentsRes,
+    balanceChecksRes,
+    planItemsRes,
+    recurringIncomesRes,
+  ] = await Promise.all([
     client.from('settings').select(SETTINGS_COLUMNS).maybeSingle(),
     client
       .from('payment_sources')
@@ -324,6 +391,21 @@ export async function loadFinanceData(client: SupabaseClient = getSupabaseClient
       .select(BILL_PAYMENT_COLUMNS)
       .order('paid_on', { ascending: false })
       .order('id', { ascending: true }),
+    client
+      .from('balance_checks')
+      .select(BALANCE_CHECK_COLUMNS)
+      .order('checked_on', { ascending: false })
+      .order('created_at', { ascending: false }),
+    client
+      .from('plan_items')
+      .select(PLAN_ITEM_COLUMNS)
+      .order('sort_order', { ascending: true })
+      .order('id', { ascending: true }),
+    client
+      .from('recurring_incomes')
+      .select(RECURRING_INCOME_COLUMNS)
+      .order('day_of_month', { ascending: true })
+      .order('id', { ascending: true }),
   ]);
 
   if (settingsRes.error) throw wrapRepoError('โหลดการตั้งค่าไม่สำเร็จ', settingsRes.error);
@@ -333,10 +415,18 @@ export async function loadFinanceData(client: SupabaseClient = getSupabaseClient
   if (instsRes.error) throw wrapRepoError('โหลดรายการผ่อนไม่สำเร็จ', instsRes.error);
   if (txRes.error) throw wrapRepoError('โหลดรายการใช้จ่ายไม่สำเร็จ', txRes.error);
   if (paymentsRes.error) throw wrapRepoError('โหลดประวัติการจ่ายบิลไม่สำเร็จ', paymentsRes.error);
+  if (balanceChecksRes?.error) throw wrapRepoError('โหลดประวัติเช็กยอดไม่สำเร็จ', balanceChecksRes.error);
+  if (planItemsRes?.error) throw wrapRepoError('โหลดรายการแผนไม่สำเร็จ', planItemsRes.error);
+  if (recurringIncomesRes?.error) throw wrapRepoError('โหลดเงินประจำไม่สำเร็จ', recurringIncomesRes.error);
 
   const settings: Settings = settingsRes.data
     ? mapSettingsFromRow(settingsRes.data as SettingsRow)
     : { userId: '', salary: 0, payDay: 10, budgetStartPeriod: null };
+
+  // Prompt 02 replaces the Phase 2 table arrays with full row mappers.
+  void balanceChecksRes;
+  void planItemsRes;
+  void recurringIncomesRes;
 
   return {
     settings,
@@ -346,6 +436,9 @@ export async function loadFinanceData(client: SupabaseClient = getSupabaseClient
     installments: ((instsRes.data ?? []) as InstallmentRow[]).map(mapInstallmentFromRow),
     transactions: ((txRes.data ?? []) as TransactionRow[]).map(mapTransactionFromRow),
     payments: ((paymentsRes.data ?? []) as BillPaymentRow[]).map(mapBillPaymentFromRow),
+    balanceChecks: [],
+    planItems: [],
+    recurringIncomes: [],
   };
 }
 
@@ -602,4 +695,85 @@ export async function deleteBillPayment(
   if (error) {
     throw wrapRepoError('ยกเลิกการจ่ายบิลไม่สำเร็จ', error);
   }
+}
+
+export async function createTransactions(
+  inputs: CreateTransactionsInput,
+  client?: SupabaseClient,
+): Promise<Transaction[]> {
+  void inputs;
+  void client;
+  throw new Error('not implemented: createTransactions');
+}
+
+export async function createBalanceCheck(
+  input: CreateBalanceCheckInput,
+  client?: SupabaseClient,
+): Promise<BalanceCheck> {
+  void input;
+  void client;
+  throw new Error('not implemented: createBalanceCheck');
+}
+
+export async function upsertPlanItem(
+  input: UpsertPlanItemInput,
+  client?: SupabaseClient,
+): Promise<PlanItem> {
+  void input;
+  void client;
+  throw new Error('not implemented: upsertPlanItem');
+}
+
+export async function deletePlanItem(
+  id: string,
+  client?: SupabaseClient,
+): Promise<void> {
+  void id;
+  void client;
+  throw new Error('not implemented: deletePlanItem');
+}
+
+export async function completePlanItem(
+  id: string,
+  client?: SupabaseClient,
+): Promise<PlanItem> {
+  void id;
+  void client;
+  throw new Error('not implemented: completePlanItem');
+}
+
+export async function uncompletePlanItem(
+  id: string,
+  client?: SupabaseClient,
+): Promise<PlanItem> {
+  void id;
+  void client;
+  throw new Error('not implemented: uncompletePlanItem');
+}
+
+export async function upsertRecurringIncome(
+  input: UpsertRecurringIncomeInput,
+  client?: SupabaseClient,
+): Promise<RecurringIncome> {
+  void input;
+  void client;
+  throw new Error('not implemented: upsertRecurringIncome');
+}
+
+export async function deleteRecurringIncome(
+  id: string,
+  client?: SupabaseClient,
+): Promise<void> {
+  void id;
+  void client;
+  throw new Error('not implemented: deleteRecurringIncome');
+}
+
+export async function confirmIncome(
+  input: ConfirmIncomeInput,
+  client?: SupabaseClient,
+): Promise<Transaction> {
+  void input;
+  void client;
+  throw new Error('not implemented: confirmIncome');
 }

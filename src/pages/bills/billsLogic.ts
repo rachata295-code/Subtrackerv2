@@ -7,19 +7,20 @@ import {
   subscriptionCharges,
 } from '../../domain';
 import { thaiMonthShort } from '../../lib/thaiDate';
-import type {
-  Category,
-  FinanceData,
-  ISODate,
-  Installment,
-  PayPeriod,
-  PaymentSource,
-  PeriodKey,
-  Pot,
-  PotStatus,
-  Satang,
-  StatementWindow,
-  Subscription,
+import {
+  CATEGORY_LABELS,
+  type Category,
+  type FinanceData,
+  type ISODate,
+  type Installment,
+  type PayPeriod,
+  type PaymentSource,
+  type PeriodKey,
+  type Pot,
+  type PotStatus,
+  type Satang,
+  type StatementWindow,
+  type Subscription,
 } from '../../types/finance';
 
 export const THAI_MONTHS_FULL = [
@@ -38,13 +39,8 @@ export const THAI_MONTHS_FULL = [
 ] as const;
 
 const CATEGORY_LABEL: Record<Category, string> = {
-  food: 'อาหาร',
-  transport: 'เดินทาง',
-  shopping: 'ช้อปปิ้ง',
-  entertainment: 'บันเทิง',
-  health: 'สุขภาพ',
+  ...CATEGORY_LABELS,
   bills: 'บิล',
-  other: 'อื่นๆ',
 };
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

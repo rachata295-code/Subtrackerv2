@@ -95,6 +95,9 @@ describe('useFinance hooks with TanStack Query + mocked repo', () => {
       potId: 'pot-play',
       category: 'food',
       note: 'ข้าว',
+      createdAt: '2026-11-15T05:00:00.000Z',
+      recurringIncomeId: null,
+      incomeDueOn: null,
     });
     const updateSettingsSpy = vi.spyOn(financeRepo, 'updateSettings').mockResolvedValue({
       userId: 'u1',
@@ -154,6 +157,7 @@ describe('useFinance hooks with TanStack Query + mocked repo', () => {
       statementKey: '2026-11',
       amount: 107700,
       paidOn: '2026-11-24',
+      createdAt: '2026-11-24T09:00:00.000Z',
     });
 
     const { queryClient, wrapper } = createWrapper();

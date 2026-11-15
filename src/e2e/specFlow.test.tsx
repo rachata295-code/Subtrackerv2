@@ -45,7 +45,13 @@ describe('End-to-end SPEC §4 user flow (login -> add expense -> pay bill -> sig
 
     vi.spyOn(financeRepo, 'loadFinanceData').mockImplementation(async () => structuredClone(db));
     vi.spyOn(financeRepo, 'createTransaction').mockImplementation(async (input: CreateTransactionInput) => {
-      const created: Transaction = { id: `tx-e2e-${nextTxNum++}`, ...input };
+      const created: Transaction = {
+        id: `tx-e2e-${nextTxNum++}`,
+        ...input,
+        createdAt: input.createdAt ?? '2026-11-15T05:00:00.000Z',
+        recurringIncomeId: input.recurringIncomeId ?? null,
+        incomeDueOn: input.incomeDueOn ?? null,
+      };
       db = { ...db, transactions: [created, ...db.transactions] };
       return created;
     });
@@ -54,7 +60,11 @@ describe('End-to-end SPEC §4 user flow (login -> add expense -> pay bill -> sig
         (p) => p.sourceId === input.sourceId && p.statementKey === input.statementKey,
       );
       if (existing) return existing;
-      const created: BillPayment = { id: `pay-e2e-${nextPayNum++}`, ...input };
+      const created: BillPayment = {
+        id: `pay-e2e-${nextPayNum++}`,
+        ...input,
+        createdAt: input.createdAt ?? '2026-11-15T05:00:00.000Z',
+      };
       db = { ...db, payments: [created, ...db.payments] };
       return created;
     });

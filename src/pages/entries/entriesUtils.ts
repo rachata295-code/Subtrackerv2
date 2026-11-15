@@ -2,7 +2,7 @@ import { payPeriod } from '../../domain';
 import { addDays, parseISODate } from '../../domain/date';
 import { thaiMonthShort } from '../../lib/thaiDate';
 import type { MoneyKind } from '../../components/ui/Money';
-import type { Category, ISODate, PayPeriod, Transaction } from '../../types/finance';
+import { CATEGORY_LABELS, type Category, type ISODate, type PayPeriod, type Transaction } from '../../types/finance';
 
 export const CATEGORY_OPTIONS: readonly { value: Category; label: string }[] = [
   { value: 'food', label: 'อาหาร' },
@@ -14,15 +14,7 @@ export const CATEGORY_OPTIONS: readonly { value: Category; label: string }[] = [
   { value: 'other', label: 'อื่นๆ' },
 ];
 
-export const CATEGORY_LABEL: Record<Category, string> = {
-  food: 'อาหาร',
-  transport: 'เดินทาง',
-  shopping: 'ช้อปปิ้ง',
-  entertainment: 'บันเทิง',
-  health: 'สุขภาพ',
-  bills: 'บิล/ค่าบริการ',
-  other: 'อื่นๆ',
-};
+export const CATEGORY_LABEL: Record<Category, string> = CATEGORY_LABELS;
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 

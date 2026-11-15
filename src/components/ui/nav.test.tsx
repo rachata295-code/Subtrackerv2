@@ -67,24 +67,30 @@ describe('<TabBar>', () => {
     );
   }
 
-  it('is a labelled navigation with 4 links pointing to the phase-1 tabs', () => {
+  it('is a labelled navigation with 5 links pointing to the phase-2 tabs and fits at 375px without overflow', () => {
     renderAt('/');
     const nav = screen.getByRole('navigation', { name: 'เมนูหลัก' });
     const links = Array.from(nav.querySelectorAll('a'));
-    expect(links).toHaveLength(4);
+    expect(links).toHaveLength(5);
     expect(links.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['ภาพรวม', '/'],
       ['รายการ', '/entries'],
+      ['แผน', '/plan'],
       ['บิล & ผ่อน', '/bills'],
       ['ตั้งค่า', '/settings'],
     ]);
+    for (const link of links) {
+      expect(link.className).toContain('flex-1');
+      expect(link.className).toContain('min-w-tap');
+    }
   });
 
   it('marks only the current route as aria-current="page"', () => {
-    renderAt('/bills');
-    expect(screen.getByRole('link', { name: 'บิล & ผ่อน' }).getAttribute('aria-current')).toBe('page');
+    renderAt('/plan');
+    expect(screen.getByRole('link', { name: 'แผน' }).getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('link', { name: 'ภาพรวม' }).getAttribute('aria-current')).toBeNull();
     expect(screen.getByRole('link', { name: 'รายการ' }).getAttribute('aria-current')).toBeNull();
+    expect(screen.getByRole('link', { name: 'บิล & ผ่อน' }).getAttribute('aria-current')).toBeNull();
     expect(screen.getByRole('link', { name: 'ตั้งค่า' }).getAttribute('aria-current')).toBeNull();
   });
 

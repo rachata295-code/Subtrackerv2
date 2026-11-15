@@ -87,7 +87,13 @@ beforeEach(() => {
   nextId = 1;
   toast.dismiss();
   createSpy.mockReset().mockImplementation(async (input) => {
-    const created: Transaction = { id: `tx-new-${nextId++}`, ...input };
+    const created: Transaction = {
+      id: `tx-new-${nextId++}`,
+      ...input,
+      createdAt: input.createdAt ?? `${input.date}T12:00:00.000Z`,
+      recurringIncomeId: input.recurringIncomeId ?? null,
+      incomeDueOn: input.incomeDueOn ?? null,
+    };
     setStateHook?.({
       ...mockData,
       transactions: [...mockData.transactions, created],
@@ -146,6 +152,9 @@ describe('<EntriesPage>', () => {
         potId: 'pot-play',
         category: 'food',
         note: 'กาแฟ',
+        createdAt: '2026-11-12T10:00:00.000Z',
+        recurringIncomeId: null,
+        incomeDueOn: null,
       },
       {
         id: 'tx-nov-refund',
@@ -156,6 +165,9 @@ describe('<EntriesPage>', () => {
         potId: null,
         category: 'other',
         note: 'โอนคืน',
+        createdAt: '2026-11-13T10:00:00.000Z',
+        recurringIncomeId: null,
+        incomeDueOn: null,
       },
     ];
     render(<StatefulHarness initial={makeFixtureClone(extra)} />);
@@ -193,6 +205,9 @@ describe('<EntriesPage>', () => {
         potId: 'pot-play',
         category: 'food',
         note: 'กาแฟ',
+        createdAt: '2026-11-12T10:00:00.000Z',
+        recurringIncomeId: null,
+        incomeDueOn: null,
       },
     ];
     render(<StatefulHarness initial={makeFixtureClone(extra)} />);
@@ -341,6 +356,9 @@ describe('<EntriesPage>', () => {
         potId: null,
         category: 'other',
         note: 'ขายของ',
+        createdAt: '2026-11-13T10:00:00.000Z',
+        recurringIncomeId: null,
+        incomeDueOn: null,
       },
       {
         id: 'tx-mix-1-out',
@@ -351,6 +369,9 @@ describe('<EntriesPage>', () => {
         potId: 'pot-play',
         category: 'food',
         note: 'ข้าวเย็น',
+        createdAt: '2026-11-13T12:00:00.000Z',
+        recurringIncomeId: null,
+        incomeDueOn: null,
       },
       // Nov 14: +100 income plus fixture 115 + extra 185 = 300 spend => net -200 (ink, never red)
       {
@@ -362,6 +383,9 @@ describe('<EntriesPage>', () => {
         potId: null,
         category: 'other',
         note: 'คืนเงิน',
+        createdAt: '2026-11-14T10:00:00.000Z',
+        recurringIncomeId: null,
+        incomeDueOn: null,
       },
       {
         id: 'tx-mix-2-out',
@@ -372,6 +396,9 @@ describe('<EntriesPage>', () => {
         potId: 'pot-play',
         category: 'shopping',
         note: 'ของใช้',
+        createdAt: '2026-11-14T12:00:00.000Z',
+        recurringIncomeId: null,
+        incomeDueOn: null,
       },
     ];
     render(<StatefulHarness initial={makeFixtureClone(extra)} />);
@@ -410,6 +437,9 @@ describe('<EntriesPage>', () => {
         potId: 'pot-essential',
         category: 'bills',
         note: 'ค่าไฟ',
+        createdAt: '2026-11-12T10:00:00.000Z',
+        recurringIncomeId: null,
+        incomeDueOn: null,
       },
     ];
     render(<StatefulHarness initial={makeFixtureClone(extra)} />);
@@ -443,6 +473,9 @@ describe('<EntriesPage>', () => {
         potId: 'pot-essential',
         category: 'bills',
         note: 'ค่าเน็ต',
+        createdAt: '2026-11-12T10:00:00.000Z',
+        recurringIncomeId: null,
+        incomeDueOn: null,
       },
     ];
     const { container } = render(<StatefulHarness initial={makeFixtureClone(extra)} />);

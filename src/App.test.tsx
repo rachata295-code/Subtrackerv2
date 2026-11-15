@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider, type AuthClient, type AuthSession } from './auth';
 import * as ThemeProviderModule from './components/ThemeProvider';
@@ -31,19 +32,26 @@ function makeTestAuthClient(session: AuthSession | null): AuthClient {
 }
 
 function renderRoute(path: string) {
+  vi.spyOn(financeRepo, 'loadFinanceData').mockResolvedValue(financeFixture);
   const session: AuthSession | null = path === '/login' ? null : { user: { id: 'test-user', email: 'test@example.com' } };
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <AuthProvider client={makeTestAuthClient(session)}>
-      <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <AppRoutes />
-      </MemoryRouter>
-    </AuthProvider>,
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider client={makeTestAuthClient(session)}>
+        <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <AppRoutes />
+        </MemoryRouter>
+      </AuthProvider>
+    </QueryClientProvider>,
   );
 }
 
 describe('App routes', () => {
   it.each([
     ['/', 'ภาพรวม'],
+    ['/plan', 'แผน'],
     ['/bills', 'บิล & ผ่อน'],
     ['/entries', 'รายการ'],
     ['/settings', 'ตั้งค่า'],
@@ -74,12 +82,18 @@ describe('App routes', () => {
       signOut,
     };
 
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
     render(
-      <AuthProvider client={client}>
-        <MemoryRouter initialEntries={['/settings']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <AppRoutes />
-        </MemoryRouter>
-      </AuthProvider>,
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider client={client}>
+          <MemoryRouter initialEntries={['/settings']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <AppRoutes />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
     );
 
     const signOutBtn = await screen.findByRole('button', { name: 'ออกจากระบบ' });

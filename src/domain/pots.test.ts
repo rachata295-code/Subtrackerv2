@@ -29,6 +29,7 @@ describe('potStatus', () => {
           statementKey: '2026-11',
           amount: 107_700,
           paidOn: '2026-11-24',
+          createdAt: '2026-11-24T09:00:00.000Z',
         },
       ],
     };
@@ -57,6 +58,9 @@ describe('potStatus', () => {
           potId: 'pot-play',
           category: 'shopping',
           note: 'ช้อปเกินงบ',
+          createdAt: '2026-11-20T05:00:00.000Z',
+          recurringIncomeId: null,
+          incomeDueOn: null,
         },
       ],
     };
@@ -156,6 +160,9 @@ describe('potStatus', () => {
             potId: 'pot-play',
             category: 'shopping',
             note: 'imported history',
+            createdAt: '2026-09-15T05:00:00.000Z',
+            recurringIncomeId: null,
+            incomeDueOn: null,
           },
         ],
       });
