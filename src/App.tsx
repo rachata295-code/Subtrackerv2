@@ -1,5 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AuthProvider, RequireAuth } from './auth';
+import { AppShell } from './components/layout/AppShell';
 import { AppToaster } from './components/ui/Toaster';
 import { Skeleton } from './components/ui/Skeleton';
 import BillsPage from './pages/bills';
@@ -28,10 +30,14 @@ function DesignFallback() {
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<OverviewPage />} />
-      <Route path="/bills" element={<BillsPage />} />
-      <Route path="/entries" element={<EntriesPage />} />
-      <Route path="/settings" element={<SettingsPage />} />
+      <Route element={<RequireAuth />}>
+        <Route element={<AppShell />}>
+          <Route path="/" element={<OverviewPage />} />
+          <Route path="/bills" element={<BillsPage />} />
+          <Route path="/entries" element={<EntriesPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Route>
+      </Route>
       <Route path="/login" element={<LoginPage />} />
       <Route
         path="/design"
@@ -50,11 +56,13 @@ export function AppRoutes() {
 // HashRouter so the app works at any hosting sub-path (GitHub Pages) without server rewrites.
 export default function App() {
   return (
-    // future flags opt in to v7 behaviour now, which also silences the v6 console warnings.
-    <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <AppRoutes />
-      {/* Mounted once at the root (inside ThemeProvider, which main.tsx supplies) so notify() works from any page. */}
-      <AppToaster />
-    </HashRouter>
+    <AuthProvider>
+      {/* future flags opt in to v7 behaviour now, which also silences the v6 console warnings. */}
+      <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <AppRoutes />
+        {/* Mounted once at the root (inside ThemeProvider, which main.tsx supplies) so notify() works from any page. */}
+        <AppToaster />
+      </HashRouter>
+    </AuthProvider>
   );
 }
