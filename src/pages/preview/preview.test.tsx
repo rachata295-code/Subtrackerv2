@@ -242,6 +242,15 @@ describe('<PreviewHome>', () => {
     expect(document.activeElement).not.toBe(document.body);
   });
 
+  it('moves focus without scrolling, so a pay tapped far down the list keeps the user in place', () => {
+    renderHome();
+    const target = owed().closest('[role="status"]') as HTMLElement;
+    const spy = vi.spyOn(target, 'focus');
+    fireEvent.click(payButtons()[0]);
+    expect(spy).toHaveBeenCalledWith({ preventScroll: true });
+    spy.mockRestore();
+  });
+
   it('plays the shared row exit on the paid row before removing it', async () => {
     renderHome();
     const title = screen.getByText('จ่ายบิลบัตร');

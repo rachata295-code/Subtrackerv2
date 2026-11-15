@@ -202,7 +202,9 @@ export default function PreviewHome() {
 
   const pay = (id: BillId) => {
     // Move focus before the button leaves the DOM (it unmounts on the re-render this triggers).
-    owedRef.current?.focus();
+    // preventScroll: the owed figure sits above the list, so a plain focus() would yank a user
+    // who paid from further down back to the top.
+    owedRef.current?.focus({ preventScroll: true });
     setPaidState((s) => markPaid(s, id));
   };
 
