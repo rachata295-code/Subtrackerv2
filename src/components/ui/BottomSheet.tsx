@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { Drawer } from 'vaul';
 import { X } from 'lucide-react';
 import { useIsDesktop } from '../../hooks/useMediaQuery';
@@ -14,6 +14,15 @@ export interface BottomSheetProps {
 // Enter/exit timing is overridden in motion.css (Vaul's own 500ms is replaced by --dur-sheet in, 240ms out).
 export function BottomSheet({ open, onOpenChange, title, children }: BottomSheetProps) {
   const isDesktop = useIsDesktop();
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
+
+  // Capture the opener element when `open` turns true: callers control `open` via state instead of
+  // <Drawer.Trigger>, so Radix has no triggerRef and overlay clicks would otherwise drop focus to <body>.
+  if (open && !wasOpenRef.current && typeof document !== 'undefined') {
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+  wasOpenRef.current = open;
 
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange} direction={isDesktop ? 'right' : 'bottom'}>
@@ -22,6 +31,14 @@ export function BottomSheet({ open, onOpenChange, title, children }: BottomSheet
         <Drawer.Content
           // No Drawer.Description: the visible title is the sheet's name. Explicit undefined stops Radix warning about it.
           aria-describedby={undefined}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const target = returnFocusRef.current;
+            returnFocusRef.current = null;
+            if (target && target.isConnected) {
+              target.focus();
+            }
+          }}
           className={
             isDesktop
               ? 'fixed inset-y-0 right-0 z-50 flex w-panel max-w-full flex-col rounded-l-card bg-surface shadow-float outline-none'

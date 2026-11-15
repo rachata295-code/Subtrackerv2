@@ -68,7 +68,13 @@ VITE_BASE=/Subtrackerv2/ npm run build
 The manifest `start_url`/`scope`, the service worker, the icons and the asset URLs all follow this value.
 `.github/workflows/deploy.yml` runs `typecheck`, `test:run`, `test:tz`, and `check:motion`, then builds with `VITE_BASE=/Subtrackerv2/` and deploys `dist/` to GitHub Pages on pushes to `main`.
 
-## Phase 1 status & Phase 2 backlog
+## Phase 1 / Phase 1.5 status & Phase 2 backlog
+
+**Phase 1.5 (Complete on `p15/06-integration`)**:
+- Responsive navigation & multi-column layouts (`AppShell`, `SideNav` at `>=1024px`, `TabBar` at `<1024px`, `useMediaQuery` hooks in `src/hooks/useMediaQuery.ts`) across `/`, `/entries`, `/bills`, `/settings`, and `/login` (`docs/phase1_5/SPEC.md`).
+- Adaptive `BottomSheet`: Vaul bottom sheet on mobile/tablet (`<1024px`) and `w-panel` right drawer on desktop (`>=1024px`), with Escape/overlay dismissal and automatic focus restoration to the opener; plus `SegmentedControl` mobile tightening for 4+ segments (`375px`).
+- Live motion feedback (`useAnimatedItems`, `.row-enter`/`.row-exit`, `AnimatedMoney`) respecting `prefers-reduced-motion: reduce` fade-only fallback and zero animation on route, tab, or breakpoint switches.
+- Thai auth error messages (`src/auth/errors.ts`), trimmed `thai` + `latin` PWA font precache, 42 verified viewport/theme screenshots (`docs/phase1_5/screens/`), and `taste-skill` inspector pass (`0 FAIL` at `1280px`).
 
 **Phase 1 (Complete on `p1/08-integration`)**:
 - Supabase SQL schema + RLS (`supabase/schema.sql`, `supabase/seed.sql`), Auth guard + login + sign out (`src/auth/`).
@@ -78,7 +84,7 @@ The manifest `start_url`/`scope`, the service worker, the icons and the asset UR
 
 **Deferred to Phase 2**:
 - JSON backup export/import, multi-month trends/charts, statement/CSV auto-import, bill due-date reminders, multi-user shared pots.
-- Device-level iPhone PWA safe-area verification, VoiceOver double-tap polish for `HoldToDelete`, font subset trimming, and final app icon artwork replacing `public/icons/` placeholders.
+- Device-level iPhone PWA safe-area verification, VoiceOver double-tap polish for `HoldToDelete`, and final app icon artwork replacing `public/icons/` placeholders.
 
 ## PWA notes
 

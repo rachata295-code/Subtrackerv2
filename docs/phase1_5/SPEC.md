@@ -57,8 +57,11 @@ export function useIsDesktop(): boolean;               // = useMediaQuery(DESKTO
 ### 3.4 ฟอร์ม — `BottomSheet` เปลี่ยนตามจอ (API เดิม ไม่เปลี่ยน props)
 - mobile/tablet: bottom sheet เหมือนเดิม
 - desktop: Vaul `direction="right"` · แผงสูงเต็มจอ ชิดขวา กว้าง `w-panel` · มุมซ้าย `rounded-l-card` · ไม่มี handle bar · Esc / คลิก overlay ปิดได้
+- focus: บันทึก element ที่เปิด (`document.activeElement` ตอน `open` เปลี่ยนเป็น `true`) และคืนโฟกัสกลับผ่าน `onCloseAutoFocus` ตอนปิด (Esc / คลิก overlay / ปุ่มปิด) เพราะ controlled drawer ไม่มี `<Drawer.Trigger>`
 - motion: แผงเลื่อนจากขวา (transform เท่านั้น) ใช้ `--dur-sheet` / `--ease-drawer` เหมือนเดิม · reduced-motion → fade
 - ทุกหน้าที่ใช้ `BottomSheet` ได้ผลนี้อัตโนมัติ — ห้ามหน้าไหนสร้าง dialog เอง
+
+> หมายเหตุจากการตรวจภาพ (`06-integration`): `SegmentedControl` ที่มี 4 ตัวเลือกขึ้นไป (เช่น ตัวกรองช่องทางใน `/entries`) ใช้ `truncate px-1.5 text-sm` บน `<768px` และกลับเป็น `px-3 text-base` บน `md` ขึ้นไป เพื่อไม่ให้ป้ายตัดบรรทัดหรือล้นขอบบนจอ `375px` (กลุ่ม 2–3 ตัวเลือกคงเดิมทุกประการ)
 
 ### 3.5 Quick add จาก SideNav
 - `/?add=1` → หน้าภาพรวมเปิด `QuickAddSheet` แล้วลบ `add` ออกจาก URL (`replace`) เพื่อกด back ไม่เปิดซ้ำ (prompt 01 ทำฝั่งรับ)

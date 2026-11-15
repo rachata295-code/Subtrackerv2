@@ -71,7 +71,9 @@ export function SegmentedControl<T extends string>({ options, value, onChange, l
             onClick={() => onChange(opt.value)}
             onKeyDown={(e) => handleKeyDown(e, i)}
             className={[
-              'relative z-10 min-h-tap rounded-pill px-3 text-base font-medium',
+              'relative z-10 min-h-tap rounded-pill font-medium',
+              // Keep 2-3 segment controls unchanged on mobile; tighten 4+ segments on <768px so labels never clip.
+              count >= 4 ? 'truncate px-1.5 text-sm md:px-3 md:text-base' : 'px-3 text-base',
               'focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2',
               active ? 'text-text' : 'text-muted hover-fine:hover:text-text',
             ].join(' ')}

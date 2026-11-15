@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { toast } from 'sonner';
@@ -82,6 +83,40 @@ describe('<BottomSheet>', () => {
 
     fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('restores focus to the trigger button when closed via close button or Escape', async () => {
+    mockMatchMedia(375);
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            เปิดฟอร์ม
+          </button>
+          <BottomSheet open={open} onOpenChange={setOpen} title="เพิ่มรายการ">
+            <p>เนื้อหา</p>
+          </BottomSheet>
+        </>
+      );
+    }
+
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: 'เปิดฟอร์ม' });
+
+    // Simulate real browser behavior: opening moves focus inside the dialog before closing via button/overlay.
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    const closeBtn = screen.getByRole('button', { name: 'ปิด' });
+    closeBtn.focus();
+    expect(document.activeElement).toBe(closeBtn);
+
+    fireEvent.click(closeBtn);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // Radix FocusScope triggers onCloseAutoFocus inside setTimeout(..., 0) on unmount.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(document.activeElement).toBe(trigger);
   });
 });
 
