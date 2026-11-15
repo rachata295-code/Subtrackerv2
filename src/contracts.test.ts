@@ -65,22 +65,20 @@ describe('financeFixture', () => {
   });
 });
 
-describe('domain stubs', () => {
-  it('throw not implemented errors with each function name', () => {
+describe('domain contracts', () => {
+  it('exports all SPEC §4 domain functions matching the shared contracts', () => {
     const card = financeFixture.sources[1]!;
     const sub = financeFixture.subscriptions[0]!;
     const inst = financeFixture.installments[0]!;
     const pot = financeFixture.pots[0]!;
 
-    expect(() => domain.payPeriod('2026-11-15', 10)).toThrow('not implemented: payPeriod');
-    expect(() => domain.statementFor(card, '2026-11-01')).toThrow('not implemented: statementFor');
-    expect(() => domain.subscriptionCharges(sub, '2026-11-01', '2026-11-30')).toThrow(
-      'not implemented: subscriptionCharges',
-    );
-    expect(() => domain.installmentSchedule(inst)).toThrow('not implemented: installmentSchedule');
-    expect(() => domain.billAmount(card, '2026-11', financeFixture)).toThrow('not implemented: billAmount');
-    expect(() => domain.upcomingOutflows(financeFixture, '2026-11-15')).toThrow('not implemented: upcomingOutflows');
-    expect(() => domain.potStatus(pot, '2026-11', financeFixture)).toThrow('not implemented: potStatus');
+    expect(domain.payPeriod('2026-11-15', 10).key).toBe('2026-11');
+    expect(domain.statementFor(card, '2026-11-01').key).toBe('2026-11');
+    expect(domain.subscriptionCharges(sub, '2026-11-01', '2026-11-30')).toHaveLength(1);
+    expect(domain.installmentSchedule(inst)).toHaveLength(10);
+    expect(domain.billAmount(card, '2026-11', financeFixture)).toBe(107_700);
+    expect(domain.upcomingOutflows(financeFixture, '2026-11-15').length).toBeGreaterThan(0);
+    expect(domain.potStatus(pot, '2026-11', financeFixture).left).toBe(66_207);
   });
 
   it('exports PotStatus and Outflow contract types', () => {

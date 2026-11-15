@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:tz": "TZ=UTC vitest run src/domain && TZ=America/New_York vitest run src/domain",
     "check:motion": "node scripts/check-motion.mjs"
   },
   "dependencies": {
