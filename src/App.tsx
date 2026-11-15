@@ -1,10 +1,8 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AppToaster } from './components/ui/Toaster';
+import DesignPage from './pages/DesignPage';
 
-// Placeholders: Task 10 replaces DesignPage and Task 11 replaces PreviewHomePage.
-function DesignPage() {
-  return <main className="p-screen">หน้า Design System</main>;
-}
-
+// Placeholder: Task 11 replaces PreviewHomePage.
 function PreviewHomePage() {
   return <main className="p-screen">หน้าภาพรวมตัวอย่าง</main>;
 }
@@ -19,6 +17,8 @@ export default function App() {
         <Route path="/preview-home" element={<PreviewHomePage />} />
         <Route path="*" element={<Navigate to="/design" replace />} />
       </Routes>
+      {/* Mounted once at the root (inside ThemeProvider, which main.tsx supplies) so notify() works from any page. */}
+      <AppToaster />
     </HashRouter>
   );
 }

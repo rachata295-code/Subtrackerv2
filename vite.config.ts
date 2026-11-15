@@ -10,6 +10,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: false,
-    css: false,
+    // CSS is stubbed for speed, except tokens.css, which DesignPage imports with ?raw to compute contrast ratios.
+    css: { include: [/tokens\.css/] },
   },
 });

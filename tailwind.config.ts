@@ -42,6 +42,8 @@ export default {
     },
     borderRadius: {
       none: '0',
+      // Circle, not a fifth radius value: only the Switch track/thumb use it (tile-radius would make them squares).
+      full: '9999px',
       dot: 'var(--radius-dot)',
       pill: 'var(--radius-pill)',
       tile: 'var(--radius-tile)',
@@ -67,8 +69,10 @@ export default {
         card: 'var(--pad-card)',
         screen: 'var(--pad-screen)',
       },
-      // Spec 5.4 type scale for money; body/small reuse Tailwind's 16/14px defaults.
+      // Spec 5.4 type scale: title 26, section 18, money-xl 36, money 17. Body/small/meta reuse Tailwind's 16/14/12px defaults.
       fontSize: {
+        title: ['26px', { lineHeight: '32px' }],
+        section: ['18px', { lineHeight: '24px' }],
         'money-xl': ['36px', { lineHeight: '40px' }],
         money: ['17px', { lineHeight: '24px' }],
       },
