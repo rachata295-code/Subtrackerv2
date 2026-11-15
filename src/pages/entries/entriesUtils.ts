@@ -1,8 +1,17 @@
 import { payPeriod } from '../../domain';
-import { addDays, parseISODate } from '../../domain/date';
+import { addDays, parseISODate, parsePeriodKey } from '../../domain/date';
+import { payPeriodForKey } from '../../domain/period';
 import { thaiMonthShort } from '../../lib/thaiDate';
 import type { MoneyKind } from '../../components/ui/Money';
-import { CATEGORY_LABELS, type Category, type ISODate, type PayPeriod, type Transaction } from '../../types/finance';
+import {
+  CATEGORY_LABELS,
+  type Category,
+  type ISODate,
+  type PayPeriod,
+  type PeriodKey,
+  type SummaryCategory,
+  type Transaction,
+} from '../../types/finance';
 
 export const CATEGORY_OPTIONS: readonly { value: Category; label: string }[] = [
   { value: 'food', label: 'อาหาร' },
@@ -64,6 +73,20 @@ export function formatThaiShort(iso: ISODate): string {
   return `${day} ${thaiMonthShort(month - 1)}`;
 }
 
+export function formatPeriodMonthYear(periodKey: PeriodKey): string {
+  const { year, month } = parsePeriodKey(periodKey);
+  return `${thaiMonthShort(month - 1)} ${year + 543}`;
+}
+
+export function getPeriodRange(periodKey: PeriodKey, payDay: number): PayPeriod {
+  return payPeriodForKey(periodKey, payDay);
+}
+
+export function getPreviousPeriodKey(periodKey: PeriodKey, payDay: number): PeriodKey {
+  const current = payPeriodForKey(periodKey, payDay);
+  return payPeriod(addDays(current.start, -1), payDay).key;
+}
+
 export interface DayGroup {
   date: ISODate;
   transactions: Transaction[];
@@ -71,17 +94,20 @@ export interface DayGroup {
   displayKind: MoneyKind;
 }
 
-/** Filters transactions to a pay period and optional source/pot selections (pure). */
+/** Filters transactions to a pay period and optional source/pot/category selections (pure). */
 export function filterTransactions(
   transactions: Transaction[],
   period: PayPeriod,
   sourceFilter: string,
   potFilter: string = 'all',
+  categoryFilter: SummaryCategory | 'all' = 'all',
 ): Transaction[] {
   return transactions.filter((tx) => {
     if (tx.date < period.start || tx.date > period.end) return false;
     if (sourceFilter !== 'all' && tx.sourceId !== sourceFilter) return false;
     if (potFilter !== 'all' && tx.potId !== potFilter) return false;
+    // Summary categories only aggregate spending ('out'), so clicking a category bar matches out transactions.
+    if (categoryFilter !== 'all' && (tx.direction !== 'out' || tx.category !== categoryFilter)) return false;
     return true;
   });
 }
@@ -91,8 +117,9 @@ export function groupTransactionsByDay(
   period: PayPeriod,
   sourceFilter: string,
   potFilter: string = 'all',
+  categoryFilter: SummaryCategory | 'all' = 'all',
 ): DayGroup[] {
-  const filtered = filterTransactions(transactions, period, sourceFilter, potFilter);
+  const filtered = filterTransactions(transactions, period, sourceFilter, potFilter, categoryFilter);
 
   // Sort newest date first while showing later entries within the same day at the top.
   const ordered = [...filtered].reverse().sort((a, b) => b.date.localeCompare(a.date));

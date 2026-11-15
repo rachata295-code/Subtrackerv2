@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { AnimatedRow, ROW_EXIT_MS } from '../../components/ui/AnimatedRow';
 import { Button } from '../../components/ui/Button';
@@ -20,17 +21,44 @@ import {
   useUpdateTransaction,
 } from '../../hooks/useFinance';
 import { useIsDesktop } from '../../hooks/useMediaQuery';
-import type { CreateTransactionInput, ISODate, Transaction } from '../../types/finance';
+import {
+  SUMMARY_CATEGORY_LABELS,
+  type CreateTransactionInput,
+  type ISODate,
+  type PeriodKey,
+  type SummaryCategory,
+  type Transaction,
+} from '../../types/finance';
 import { EntrySheet } from './EntrySheet';
+import { EntriesSummaryView } from './EntriesSummaryView';
 import {
   CATEGORY_LABEL,
+  formatPeriodMonthYear,
   formatThaiDate,
   formatThaiShort,
   getPeriodOptions,
+  getPeriodRange,
   groupTransactionsByDay,
   todayBangkok,
   type PeriodOffset,
 } from './entriesUtils';
+
+type EntriesView = 'list' | 'summary';
+
+const VIEW_OPTIONS: SegmentedOption<EntriesView>[] = [
+  { value: 'list', label: 'รายการ' },
+  { value: 'summary', label: 'สรุป' },
+];
+
+function isSummaryCategory(value: string | null): value is SummaryCategory {
+  return value !== null && Object.prototype.hasOwnProperty.call(SUMMARY_CATEGORY_LABELS, value);
+}
+
+const PERIOD_KEY_RE = /^\d{4}-\d{2}$/;
+
+function isValidPeriodKeyParam(value: string | null): value is PeriodKey {
+  return value !== null && PERIOD_KEY_RE.test(value);
+}
 
 export interface EntriesPageProps {
   /** Override current Bangkok date for deterministic rendering and tests. */
@@ -44,10 +72,17 @@ function formatErrorMessage(err: unknown): string {
 export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
   const today = todayProp ?? todayBangkok();
   const isDesktop = useIsDesktop();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data, isLoading, error, refetch } = useFinanceData();
   const createTx = useCreateTransaction();
   const updateTx = useUpdateTransaction();
   const deleteTx = useDeleteTransaction();
+
+  const view: EntriesView = searchParams.get('view') === 'summary' ? 'summary' : 'list';
+  const rawCategory = searchParams.get('category');
+  const activeCategoryFilter: SummaryCategory | 'all' = isSummaryCategory(rawCategory) ? rawCategory : 'all';
+  const rawPeriodParam = searchParams.get('period');
+  const urlPeriodKey = isValidPeriodKeyParam(rawPeriodParam) ? rawPeriodParam : null;
 
   const [periodOffset, setPeriodOffset] = useState<PeriodOffset>('0');
   const [potFilter, setPotFilter] = useState<string>('all');
@@ -67,7 +102,16 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
 
   const payDay = data?.settings.payDay ?? 10;
   const periodOptions = useMemo(() => getPeriodOptions(today, payDay), [today, payDay]);
-  const selectedPeriod = periodOptions.find((p) => p.offset === periodOffset)?.period ?? periodOptions[0].period;
+  const currentPeriodKey = periodOptions[0].period.key;
+  const matchingOffsetOption = urlPeriodKey
+    ? periodOptions.find((p) => p.period.key === urlPeriodKey)
+    : undefined;
+  const effectiveOffset = matchingOffsetOption ? matchingOffsetOption.offset : periodOffset;
+  const selectedPeriod = useMemo(() => {
+    if (urlPeriodKey) return getPeriodRange(urlPeriodKey, payDay);
+    return periodOptions.find((p) => p.offset === periodOffset)?.period ?? periodOptions[0].period;
+  }, [urlPeriodKey, payDay, periodOptions, periodOffset]);
+  const isOlderUrlPeriod = urlPeriodKey !== null && !matchingOffsetOption;
 
   const periodFilterOptions: SegmentedOption<PeriodOffset>[] = useMemo(
     () => periodOptions.map((o) => ({ value: o.offset, label: o.label })),
@@ -97,15 +141,26 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
   const dayGroups = useMemo(
     () =>
       data
-        ? groupTransactionsByDay(data.transactions, selectedPeriod, activeSourceFilter, activePotFilter)
+        ? groupTransactionsByDay(
+            data.transactions,
+            selectedPeriod,
+            activeSourceFilter,
+            activePotFilter,
+            activeCategoryFilter,
+          )
         : [],
-    [data, selectedPeriod, activeSourceFilter, activePotFilter],
+    [data, selectedPeriod, activeSourceFilter, activePotFilter, activeCategoryFilter],
   );
 
-  // Clear recentIds whenever a filter changes so rows appearing from filtering never play enter animations.
+  // Clear recentIds whenever a filter or view changes so rows appearing from filtering never play enter animations.
   const handlePeriodChange = (next: PeriodOffset) => {
     setRecentIds(new Set());
     setPeriodOffset(next);
+    if (urlPeriodKey) {
+      const updated = new URLSearchParams(searchParams);
+      updated.delete('period');
+      setSearchParams(updated, { replace: true });
+    }
   };
 
   const handlePotChange = (next: string) => {
@@ -116,6 +171,57 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
   const handleSourceChange = (next: string) => {
     setRecentIds(new Set());
     setSourceFilter(next);
+  };
+
+  const handleViewChange = (next: EntriesView) => {
+    if (next === view) return;
+    setRecentIds(new Set());
+    const updated = new URLSearchParams(searchParams);
+    if (next === 'summary') {
+      updated.set('view', 'summary');
+      updated.delete('category');
+    } else {
+      updated.delete('view');
+    }
+    // Push history entry so browser Back switches cleanly between ?view=summary and /entries.
+    setSearchParams(updated);
+  };
+
+  const handleSummaryPeriodChange = (nextKey: PeriodKey) => {
+    const matched = periodOptions.find((p) => p.period.key === nextKey);
+    if (matched) setPeriodOffset(matched.offset);
+    const updated = new URLSearchParams(searchParams);
+    if (nextKey === currentPeriodKey) updated.delete('period');
+    else updated.set('period', nextKey);
+    setSearchParams(updated, { replace: true });
+  };
+
+  const handleSelectCategoryFromSummary = (category: SummaryCategory) => {
+    setRecentIds(new Set());
+    const updated = new URLSearchParams(searchParams);
+    updated.delete('view');
+    updated.set('category', category);
+    if (selectedPeriod.key !== currentPeriodKey) {
+      updated.set('period', selectedPeriod.key);
+    } else {
+      updated.delete('period');
+    }
+    setSearchParams(updated);
+  };
+
+  const handleClearCategoryFilter = () => {
+    setRecentIds(new Set());
+    const updated = new URLSearchParams(searchParams);
+    updated.delete('category');
+    setSearchParams(updated, { replace: true });
+  };
+
+  const handleClearOlderPeriod = () => {
+    setRecentIds(new Set());
+    setPeriodOffset('0');
+    const updated = new URLSearchParams(searchParams);
+    updated.delete('period');
+    setSearchParams(updated, { replace: true });
   };
 
   const openAdd = () => {
@@ -252,6 +358,10 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
         ) : null}
       </header>
 
+      <div className="mt-4">
+        <SegmentedControl label="มุมมอง" options={VIEW_OPTIONS} value={view} onChange={handleViewChange} />
+      </div>
+
       {isLoading ? (
         <div className="mt-4 space-y-3" role="status" aria-label="กำลังโหลด">
           <Skeleton className="h-11 w-full" />
@@ -269,108 +379,157 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
         </Card>
       ) : data ? (
         <>
-          <div className="mt-4 lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:items-start lg:gap-6">
-            {/* Desktop uses SelectField inside a 240px sticky card because 3-4 segment tablists overflow at 240px;
-                mobile/tablet keep SegmentedControl chip rows so only one control set is mounted at any width. */}
-            <aside aria-label="ตัวกรองรายการ" className="lg:sticky lg:top-6">
-              {isDesktop ? (
-                <Card className="space-y-3">
-                  <SelectField
-                    label="รอบเงินเดือน"
-                    options={periodFilterOptions}
-                    value={periodOffset}
-                    onChange={(e) => handlePeriodChange(e.target.value as PeriodOffset)}
-                  />
-                  {data.pots.length > 0 ? (
+          {view === 'summary' ? (
+            <EntriesSummaryView
+              data={data}
+              today={today}
+              selectedPeriodKey={selectedPeriod.key}
+              onSelectPeriod={handleSummaryPeriodChange}
+              onSelectCategory={handleSelectCategoryFromSummary}
+            />
+          ) : (
+            <div className="mt-4 lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:items-start lg:gap-6">
+              {/* Desktop uses SelectField inside a 240px sticky card because 3-4 segment tablists overflow at 240px;
+                  mobile/tablet keep SegmentedControl chip rows so only one control set is mounted at any width. */}
+              <aside aria-label="ตัวกรองรายการ" className="lg:sticky lg:top-6">
+                {isDesktop ? (
+                  <Card className="space-y-3">
                     <SelectField
-                      label="ก้อนเงิน"
-                      options={potOptions}
-                      value={activePotFilter}
-                      onChange={(e) => handlePotChange(e.target.value)}
+                      label="รอบเงินเดือน"
+                      options={periodFilterOptions}
+                      value={effectiveOffset}
+                      onChange={(e) => handlePeriodChange(e.target.value as PeriodOffset)}
                     />
-                  ) : null}
-                  <SelectField
-                    label="ช่องทาง"
-                    options={sourceOptions}
-                    value={activeSourceFilter}
-                    onChange={(e) => handleSourceChange(e.target.value)}
-                  />
-                </Card>
-              ) : (
-                <div className="space-y-2.5">
-                  <SegmentedControl
-                    label="รอบเงินเดือน"
-                    options={periodFilterOptions}
-                    value={periodOffset}
-                    onChange={handlePeriodChange}
-                  />
-                  {data.pots.length > 0 ? (
+                    {data.pots.length > 0 ? (
+                      <SelectField
+                        label="ก้อนเงิน"
+                        options={potOptions}
+                        value={activePotFilter}
+                        onChange={(e) => handlePotChange(e.target.value)}
+                      />
+                    ) : null}
+                    <SelectField
+                      label="ช่องทาง"
+                      options={sourceOptions}
+                      value={activeSourceFilter}
+                      onChange={(e) => handleSourceChange(e.target.value)}
+                    />
+                  </Card>
+                ) : (
+                  <div className="space-y-2.5">
                     <SegmentedControl
-                      label="กรองก้อนเงิน"
-                      options={potOptions}
-                      value={activePotFilter}
-                      onChange={handlePotChange}
+                      label="รอบเงินเดือน"
+                      options={periodFilterOptions}
+                      value={effectiveOffset}
+                      onChange={handlePeriodChange}
                     />
-                  ) : null}
-                  <SegmentedControl
-                    label="กรองช่องทาง"
-                    options={sourceOptions}
-                    value={activeSourceFilter}
-                    onChange={handleSourceChange}
-                  />
-                </div>
-              )}
-            </aside>
+                    {data.pots.length > 0 ? (
+                      <SegmentedControl
+                        label="กรองก้อนเงิน"
+                        options={potOptions}
+                        value={activePotFilter}
+                        onChange={handlePotChange}
+                      />
+                    ) : null}
+                    <SegmentedControl
+                      label="กรองช่องทาง"
+                      options={sourceOptions}
+                      value={activeSourceFilter}
+                      onChange={handleSourceChange}
+                    />
+                  </div>
+                )}
+              </aside>
 
-            <div className="mt-4 min-w-0 lg:mt-0">
-              {dayGroups.length === 0 ? (
-                <Card>
-                  <EmptyState message="ยังไม่มีรายการในรอบนี้" />
-                </Card>
-              ) : (
-                <div className="space-y-4">
-                  {dayGroups.map((group) => (
-                    <section key={group.date} data-testid={`day-group-${group.date}`}>
-                      <div className="mb-1.5 flex items-baseline justify-between gap-3 px-1">
-                        <h2 className="text-sm font-medium text-muted">{formatThaiDate(group.date)}</h2>
-                        <span data-testid={`day-total-${group.date}`} className="text-right">
-                          <Money value={group.displayBaht} size="sm" kind={group.displayKind} />
-                        </span>
-                      </div>
-                      <Card padding="none" className="px-card py-1">
-                        {group.transactions.map((tx) => {
-                          const src = sourcesById.get(tx.sourceId);
-                          const title = tx.note.trim() ? tx.note : CATEGORY_LABEL[tx.category];
-                          const detail = (
-                            <span className="inline-flex items-center gap-1.5">
-                              {src ? <Pill hue={src.hue}>{src.name}</Pill> : null}
-                              {tx.note.trim() ? <span>{CATEGORY_LABEL[tx.category]}</span> : null}
-                            </span>
-                          );
-                          const isLeaving = leavingIds.has(tx.id);
-                          return (
-                            <AnimatedRow
-                              key={tx.id}
-                              entering={recentIds.has(tx.id) && !isLeaving}
-                              leaving={isLeaving}
-                            >
-                              <ListRow
-                                title={title}
-                                detail={detail}
-                                amount={tx.amount / 100}
-                                amountKind={tx.direction === 'in' ? 'income' : 'spend'}
-                                onClick={() => openEdit(tx)}
-                              />
-                            </AnimatedRow>
-                          );
-                        })}
-                      </Card>
-                    </section>
-                  ))}
-                </div>
-              )}
+              <div className="mt-4 min-w-0 lg:mt-0">
+                {activeCategoryFilter !== 'all' || isOlderUrlPeriod ? (
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    {activeCategoryFilter !== 'all' ? (
+                      <span className="inline-flex min-h-tap items-center gap-1.5 rounded-tile bg-stone-bg pl-3 pr-1 text-sm text-text">
+                        <span>หมวด: {SUMMARY_CATEGORY_LABELS[activeCategoryFilter]}</span>
+                        <button
+                          type="button"
+                          onClick={handleClearCategoryFilter}
+                          aria-label={`ล้างตัวกรองหมวด${SUMMARY_CATEGORY_LABELS[activeCategoryFilter]}`}
+                          className="pressable inline-flex h-9 w-9 items-center justify-center rounded-pill text-muted hover-fine:hover:bg-surface hover-fine:hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                        >
+                          <X size={16} strokeWidth={1.6} aria-hidden="true" />
+                        </button>
+                      </span>
+                    ) : null}
+                    {isOlderUrlPeriod && urlPeriodKey ? (
+                      <span className="inline-flex min-h-tap items-center gap-1.5 rounded-tile bg-stone-bg pl-3 pr-1 text-sm text-text">
+                        <span>รอบ: {formatPeriodMonthYear(urlPeriodKey)}</span>
+                        <button
+                          type="button"
+                          onClick={handleClearOlderPeriod}
+                          aria-label={`กลับไปรอบปัจจุบัน`}
+                          className="pressable inline-flex h-9 w-9 items-center justify-center rounded-pill text-muted hover-fine:hover:bg-surface hover-fine:hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                        >
+                          <X size={16} strokeWidth={1.6} aria-hidden="true" />
+                        </button>
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {dayGroups.length === 0 ? (
+                  <Card>
+                    <EmptyState
+                      message={
+                        activeCategoryFilter === 'subscription' || activeCategoryFilter === 'installment'
+                          ? 'ไม่มีรายการจดเองในหมวดนี้ (รายการหักรอบอัตโนมัติอยู่ในแท็บ บิล & ผ่อน)'
+                          : activeCategoryFilter !== 'all'
+                            ? 'ยังไม่มีรายการในหมวดนี้'
+                            : 'ยังไม่มีรายการในรอบนี้'
+                      }
+                    />
+                  </Card>
+                ) : (
+                  <div className="space-y-4">
+                    {dayGroups.map((group) => (
+                      <section key={group.date} data-testid={`day-group-${group.date}`}>
+                        <div className="mb-1.5 flex items-baseline justify-between gap-3 px-1">
+                          <h2 className="text-sm font-medium text-muted">{formatThaiDate(group.date)}</h2>
+                          <span data-testid={`day-total-${group.date}`} className="text-right">
+                            <Money value={group.displayBaht} size="sm" kind={group.displayKind} />
+                          </span>
+                        </div>
+                        <Card padding="none" className="px-card py-1">
+                          {group.transactions.map((tx) => {
+                            const src = sourcesById.get(tx.sourceId);
+                            const title = tx.note.trim() ? tx.note : CATEGORY_LABEL[tx.category];
+                            const detail = (
+                              <span className="inline-flex items-center gap-1.5">
+                                {src ? <Pill hue={src.hue}>{src.name}</Pill> : null}
+                                {tx.note.trim() ? <span>{CATEGORY_LABEL[tx.category]}</span> : null}
+                              </span>
+                            );
+                            const isLeaving = leavingIds.has(tx.id);
+                            return (
+                              <AnimatedRow
+                                key={tx.id}
+                                entering={recentIds.has(tx.id) && !isLeaving}
+                                leaving={isLeaving}
+                              >
+                                <ListRow
+                                  title={title}
+                                  detail={detail}
+                                  amount={tx.amount / 100}
+                                  amountKind={tx.direction === 'in' ? 'income' : 'spend'}
+                                  onClick={() => openEdit(tx)}
+                                />
+                              </AnimatedRow>
+                            );
+                          })}
+                        </Card>
+                      </section>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <EntrySheet
             open={sheetOpen}
