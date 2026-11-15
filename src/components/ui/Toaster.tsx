@@ -1,4 +1,5 @@
 import { Toaster, toast } from 'sonner';
+import { useIsDesktop } from '../../hooks/useMediaQuery';
 import { useTheme } from '../ThemeProvider';
 
 // Sits above the TabBar (--tabbar-h + its safe-area padding) plus a 12px gap, so a toast never covers navigation.
@@ -6,11 +7,13 @@ const TOAST_BOTTOM = 'calc(var(--tabbar-h) + max(8px, env(safe-area-inset-bottom
 
 export function AppToaster() {
   const { resolved } = useTheme();
+  const isDesktop = useIsDesktop();
   return (
     <Toaster
       position="bottom-center"
       theme={resolved}
-      offset={{ bottom: TOAST_BOTTOM }}
+      // Desktop uses SideNav instead of bottom TabBar, so no --tabbar-h clearance is needed.
+      offset={isDesktop ? undefined : { bottom: TOAST_BOTTOM }}
       mobileOffset={{ bottom: TOAST_BOTTOM, left: 16, right: 16 }}
       // Sonner reads its palette from these variables, so pointing them at our tokens re-themes it with no
       // specificity fight (Sonner injects its stylesheet after ours, so plain utility classes would lose).

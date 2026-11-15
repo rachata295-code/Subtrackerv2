@@ -68,6 +68,8 @@ export default {
         gap: 'var(--gap)',
         card: 'var(--pad-card)',
         screen: 'var(--pad-screen)',
+        sidebar: 'var(--sidebar-w)',
+        panel: 'var(--panel-w)',
       },
       // Spec 5.4 type scale: title 26, section 18, money-xl 36, money 17. Body/small/meta reuse Tailwind's 16/14/12px defaults.
       fontSize: {
@@ -78,7 +80,11 @@ export default {
       },
       minHeight: { tap: 'var(--tap-min)' },
       minWidth: { tap: 'var(--tap-min)' },
-      maxWidth: { phone: '480px' },
+      maxWidth: {
+        phone: '480px',
+        tablet: 'var(--max-tablet)',
+        content: 'var(--max-content)',
+      },
       transitionTimingFunction: {
         out: 'var(--ease-out)',
         'in-out': 'var(--ease-in-out)',

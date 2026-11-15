@@ -67,6 +67,20 @@ describe('motion.css', () => {
     expect(block(motionCss, "[data-vaul-overlay][data-vaul-snap-points][data-state='closed']")).toContain('animation-duration: 240ms');
   });
 
+  it('overrides right-direction Vaul drawer timing with --dur-sheet / --ease-drawer and reduced-motion fade', () => {
+    const rightOpen = block(motionCss, "[data-vaul-drawer][data-vaul-drawer-direction='right'][data-state='open']");
+    expect(rightOpen).toContain('var(--dur-sheet)');
+    expect(rightOpen).toContain('var(--ease-drawer)');
+
+    const rightClosed = block(motionCss, "[data-vaul-drawer][data-vaul-drawer-direction='right'][data-state='closed']");
+    expect(rightClosed).toContain('240ms');
+    expect(rightClosed).toContain('var(--ease-drawer)');
+
+    expect(reduced).toContain("[data-vaul-drawer][data-vaul-drawer-direction='right'][data-state='open']");
+    expect(reduced).toContain('sheet-fade-in');
+    expect(reduced).toContain('sheet-fade-out');
+  });
+
   it('defines row enter (rise 8px, --dur-fast) and a faster exit (lift 4px, --dur-press)', () => {
     const enter = block(motionCss, '.row-enter {');
     const exit = block(motionCss, '.row-exit {');

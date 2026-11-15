@@ -58,6 +58,12 @@
   /* TabBar content height (8px top padding + 44px row), excluding the safe-area inset. The toaster offsets by it. */
   --tabbar-h: 52px;
 
+  /* Responsive layout widths (phase 1.5 spec 3.1) */
+  --max-tablet: 640px;
+  --max-content: 1120px;
+  --sidebar-w: 240px;
+  --panel-w: 420px;
+
   /* Scrim behind sheets: black in both themes (a text-colour scrim would turn white in dark). */
   --scrim: 0 0 0;
 

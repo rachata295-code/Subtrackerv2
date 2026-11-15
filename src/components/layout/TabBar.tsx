@@ -1,18 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { House, List, Receipt, Settings, type LucideIcon } from 'lucide-react';
-
-interface TabItem {
-  to: string;
-  label: string;
-  Icon: LucideIcon;
-}
-
-const ITEMS: TabItem[] = [
-  { to: '/', label: 'ภาพรวม', Icon: House },
-  { to: '/entries', label: 'รายการ', Icon: List },
-  { to: '/bills', label: 'บิล & ผ่อน', Icon: Receipt },
-  { to: '/settings', label: 'ตั้งค่า', Icon: Settings },
-];
+import { ITEMS } from './navItems';
 
 export function TabBar() {
   const { pathname } = useLocation();
