@@ -59,8 +59,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-phone flex-col justify-center bg-ground px-screen py-6">
-      <main>
+    <div className="mx-auto flex min-h-dvh w-full flex-col justify-center bg-ground px-screen py-6">
+      {/* Cap card width at max-w-sm (384px <= 400px) so desktop/tablet viewports stay compact while 375px remains full-width. */}
+      <main className="mx-auto w-full max-w-sm">
         <Card>
           <header className="mb-5">
             <h1 className="text-title font-semibold text-text">เข้าสู่ระบบ</h1>

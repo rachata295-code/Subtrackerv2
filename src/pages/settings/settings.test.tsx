@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { toast } from 'sonner';
 import { financeFixture } from '../../fixtures/finance';
+import { AppShell } from '../../components/layout/AppShell';
 import { AppToaster } from '../../components/ui/Toaster';
 import { HOLD_MS } from '../../components/ui/HoldToDelete';
+import { mockMatchMedia } from '../../test/mockMatchMedia';
 import type {
   FinanceData,
   PaymentSource,
@@ -164,6 +167,7 @@ afterEach(() => {
   cleanup();
   toast.dismiss();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   setStateHook = null;
 });
 
@@ -430,5 +434,253 @@ describe('<SettingsPage>', () => {
         payFromSourceId: 'src-bank',
       }),
     );
+  });
+
+  it('arranges sections in a single column on 375/768px and 2 balanced columns on 1280px desktop', () => {
+    function renderInShell(width: number) {
+      mockMatchMedia(width);
+      return render(
+        <MemoryRouter initialEntries={['/settings']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <AppShell>
+            <StatefulHarness initial={makeFixtureClone()} />
+          </AppShell>
+        </MemoryRouter>,
+      );
+    }
+
+    // 375px mobile: TabBar, single-column grid base + lg:grid-cols-2
+    renderInShell(375);
+    expect(document.querySelector('aside')).toBeNull();
+    const mobileGrid = screen.getByTestId('settings-grid');
+    expect(mobileGrid.className).toContain('grid-cols-1');
+    expect(mobileGrid.className).toContain('lg:grid-cols-2');
+    expect(mobileGrid.className).toContain('lg:items-start');
+    // 4 grid items: [เงินเดือน & รอบ] | [ช่องทางจ่าย] · [ก้อนเงิน] | [ธีม & บัญชี]
+    expect(mobileGrid.children).toHaveLength(4);
+    expect(within(mobileGrid.children[0] as HTMLElement).getByRole('heading', { name: 'รายได้และรอบเงินเดือน' })).toBeTruthy();
+    expect(within(mobileGrid.children[1] as HTMLElement).getByRole('heading', { name: 'ช่องทางจ่าย' })).toBeTruthy();
+    expect(within(mobileGrid.children[2] as HTMLElement).getByRole('heading', { name: 'ก้อนเงิน' })).toBeTruthy();
+    expect(within(mobileGrid.children[3] as HTMLElement).getByRole('heading', { name: 'ธีม' })).toBeTruthy();
+    expect(within(mobileGrid.children[3] as HTMLElement).getByRole('button', { name: 'ออกจากระบบ' })).toBeTruthy();
+
+    cleanup();
+
+    // 768px tablet: still TabBar + single column before lg:
+    renderInShell(768);
+    expect(document.querySelector('aside')).toBeNull();
+    expect(screen.getByTestId('settings-grid').className).toContain('grid-cols-1');
+
+    cleanup();
+
+    // 1280px desktop: SideNav + 2-column grid
+    renderInShell(1280);
+    expect(document.querySelector('aside')).not.toBeNull();
+    const desktopGrid = screen.getByTestId('settings-grid');
+    expect(desktopGrid.className).toContain('lg:grid-cols-2');
+    expect(desktopGrid.className).toContain('lg:items-start');
+  });
+
+  it('animates payment sources with AnimatedRow on add, delete, archive, and unarchive without initial-load animation', async () => {
+    const unlinkedSource: PaymentSource = {
+      id: 'src-unused',
+      name: 'บัญชีสำรอง',
+      kind: 'bank',
+      hue: 'lilac',
+      archived: false,
+      statementCloseDay: null,
+      dueDay: null,
+      dueMonthOffset: null,
+      payFromSourceId: null,
+    };
+    const { container } = render(<StatefulHarness initial={makeFixtureClone([unlinkedSource])} />);
+
+    // 1. Initial load: no row-enter or row-exit
+    expect(container.querySelectorAll('.row-enter')).toHaveLength(0);
+    expect(container.querySelectorAll('.row-exit')).toHaveLength(0);
+
+    // 2. Add a new source -> only the newly added row gets .row-enter
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มช่องทาง' }));
+    const addDialog = screen.getByRole('dialog');
+    fireEvent.change(within(addDialog).getByLabelText('ชื่อช่องทาง'), { target: { value: 'กระเป๋าใหม่' } });
+    fireEvent.click(within(addDialog).getByRole('button', { name: 'บันทึก' }));
+
+    await waitFor(() => expect(screen.getByText('กระเป๋าใหม่')).toBeTruthy());
+    expect(await screen.findByText('บันทึกช่องทางจ่ายแล้ว')).toBeTruthy();
+    const newRowWrapper = screen.getByText('กระเป๋าใหม่').closest('.row-enter');
+    expect(newRowWrapper).not.toBeNull();
+    expect(container.querySelectorAll('.row-enter')).toHaveLength(1);
+
+    // 3. Archive an active source -> leaves active with .row-exit then unmounts, enters archived with .row-enter
+    fireEvent.click(screen.getByText('บัตรเครดิต'));
+    const archiveDialog = screen.getByRole('dialog');
+    fireEvent.click(within(archiveDialog).getByRole('button', { name: 'เก็บถาวรช่องทาง' }));
+
+    await waitFor(() => expect(upsertSourceSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 'src-card', archived: true })));
+    expect(await screen.findByText('เก็บถาวรช่องทางแล้ว')).toBeTruthy();
+    expect(container.querySelectorAll('.row-exit')).toHaveLength(1);
+    const archivedHeading = screen.getByText('เก็บถาวรแล้ว');
+    const archivedCard = archivedHeading.parentElement!;
+    expect(within(archivedCard).getByText('บัตรเครดิต').closest('.row-enter')).not.toBeNull();
+
+    // After ROW_EXIT_MS, the leaving row in active sources unmounts.
+    await waitFor(() => expect(container.querySelectorAll('.row-exit')).toHaveLength(0));
+
+    // 4. Unarchive the archived source -> leaves archived with .row-exit, enters active with .row-enter
+    fireEvent.click(within(archivedCard).getByText('บัตรเครดิต'));
+    const unarchiveDialog = screen.getByRole('dialog');
+    fireEvent.click(within(unarchiveDialog).getByRole('button', { name: 'นำกลับมาใช้งาน' }));
+
+    await waitFor(() => expect(upsertSourceSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 'src-card', archived: false })));
+    expect(await screen.findByText('นำช่องทางกลับมาใช้แล้ว')).toBeTruthy();
+    expect(container.querySelectorAll('.row-exit')).toHaveLength(1);
+
+    await waitFor(() => expect(container.querySelectorAll('.row-exit')).toHaveLength(0));
+    expect(screen.queryByText('เก็บถาวรแล้ว')).toBeNull();
+
+    // 5. Delete an unlinked source -> plays .row-exit for ROW_EXIT_MS then unmounts
+    fireEvent.click(screen.getByText('บัญชีสำรอง'));
+    const deleteDialog = screen.getByRole('dialog');
+    const holdBtn = within(deleteDialog).getByRole('button', { name: 'กดค้างเพื่อลบช่องทาง' });
+
+    vi.useFakeTimers();
+    fireEvent.pointerDown(holdBtn);
+    act(() => {
+      vi.advanceTimersByTime(HOLD_MS);
+    });
+    vi.useRealTimers();
+
+    await waitFor(() => expect(deleteSourceSpy).toHaveBeenCalledWith('src-unused'));
+    expect(await screen.findByText('ลบช่องทางแล้ว')).toBeTruthy();
+    expect(screen.getByText('บัญชีสำรอง').closest('.row-exit')).not.toBeNull();
+
+    await waitFor(() => expect(screen.queryByText('บัญชีสำรอง')).toBeNull());
+  });
+
+  it('animates pots with AnimatedRow on add and delete without initial-load animation', async () => {
+    const unlinkedPot: Pot = {
+      id: 'pot-unused',
+      name: 'ก้อนสำรอง',
+      perPeriod: 50_000,
+      rollover: false,
+      hue: 'rose',
+    };
+    const initial = makeFixtureClone();
+    initial.pots = [...initial.pots, unlinkedPot];
+    const { container } = render(<StatefulHarness initial={initial} />);
+
+    expect(container.querySelectorAll('.row-enter')).toHaveLength(0);
+
+    // Add a pot
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มก้อนเงิน' }));
+    const addDialog = screen.getByRole('dialog');
+    fireEvent.change(within(addDialog).getByLabelText('ชื่อก้อนเงิน'), { target: { value: 'ออมท่องเที่ยว' } });
+    fireEvent.change(within(addDialog).getByLabelText('งบต่อรอบ'), { target: { value: '2,000' } });
+    fireEvent.click(within(addDialog).getByRole('button', { name: 'บันทึก' }));
+
+    await waitFor(() => expect(screen.getByText('ออมท่องเที่ยว')).toBeTruthy());
+    expect(await screen.findByText('บันทึกก้อนเงินแล้ว')).toBeTruthy();
+    expect(screen.getByText('ออมท่องเที่ยว').closest('.row-enter')).not.toBeNull();
+
+    // Delete unlinked pot
+    fireEvent.click(screen.getByText('ก้อนสำรอง'));
+    const deleteDialog = screen.getByRole('dialog');
+    const holdBtn = within(deleteDialog).getByRole('button', { name: 'กดค้างเพื่อลบ' });
+
+    vi.useFakeTimers();
+    fireEvent.pointerDown(holdBtn);
+    act(() => {
+      vi.advanceTimersByTime(HOLD_MS);
+    });
+    vi.useRealTimers();
+
+    await waitFor(() => expect(deletePotSpy).toHaveBeenCalledWith('pot-unused'));
+    expect(await screen.findByText('ลบก้อนเงินแล้ว')).toBeTruthy();
+    expect(screen.getByText('ก้อนสำรอง').closest('.row-exit')).not.toBeNull();
+
+    await waitFor(() => expect(screen.queryByText('ก้อนสำรอง')).toBeNull());
+  });
+
+  it('shows error toasts with repo error message when save, archive, or delete mutations fail', async () => {
+    const unlinkedSource: PaymentSource = {
+      id: 'src-unused',
+      name: 'บัญชีสำรอง',
+      kind: 'bank',
+      hue: 'lilac',
+      archived: false,
+      statementCloseDay: null,
+      dueDay: null,
+      dueMonthOffset: null,
+      payFromSourceId: null,
+    };
+    const unlinkedPot: Pot = {
+      id: 'pot-unused',
+      name: 'ก้อนสำรอง',
+      perPeriod: 50_000,
+      rollover: false,
+      hue: 'rose',
+    };
+    const initial = makeFixtureClone([unlinkedSource]);
+    initial.pots = [...initial.pots, unlinkedPot];
+
+    render(<StatefulHarness initial={initial} />);
+
+    // 1. Settings save error
+    updateSettingsSpy.mockRejectedValueOnce(new Error('บันทึกการตั้งค่าไม่สำเร็จ'));
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }));
+    const settingsErr = await screen.findByText('บันทึกการตั้งค่าไม่สำเร็จ');
+    expect(settingsErr.closest('[data-sonner-toast]')?.getAttribute('data-type')).toBe('error');
+
+    // 2. Source save error (sheet stays open)
+    upsertSourceSpy.mockRejectedValueOnce(new Error('บันทึกช่องทางจ่ายไม่สำเร็จ'));
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มช่องทาง' }));
+    const srcDialog = screen.getByRole('dialog');
+    fireEvent.change(within(srcDialog).getByLabelText('ชื่อช่องทาง'), { target: { value: 'ช่องทางพลาด' } });
+    fireEvent.click(within(srcDialog).getByRole('button', { name: 'บันทึก' }));
+    const srcSaveErr = await screen.findByText('บันทึกช่องทางจ่ายไม่สำเร็จ');
+    expect(srcSaveErr.closest('[data-sonner-toast]')?.getAttribute('data-type')).toBe('error');
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    fireEvent.click(within(srcDialog).getByRole('button', { name: 'ปิด' }));
+
+    // 3. Source delete error (row stays without .row-exit)
+    deleteSourceSpy.mockRejectedValueOnce(new Error('ลบช่องทางจ่ายไม่สำเร็จ'));
+    fireEvent.click(screen.getByText('บัญชีสำรอง'));
+    const srcDelDialog = screen.getByRole('dialog');
+    const holdSrcBtn = within(srcDelDialog).getByRole('button', { name: 'กดค้างเพื่อลบช่องทาง' });
+    vi.useFakeTimers();
+    fireEvent.pointerDown(holdSrcBtn);
+    act(() => {
+      vi.advanceTimersByTime(HOLD_MS);
+    });
+    vi.useRealTimers();
+    const srcDelErr = await screen.findByText('ลบช่องทางจ่ายไม่สำเร็จ');
+    expect(srcDelErr.closest('[data-sonner-toast]')?.getAttribute('data-type')).toBe('error');
+    expect(screen.getByText('บัญชีสำรอง').closest('.row-exit')).toBeNull();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'ปิด' }));
+
+    // 4. Pot save error
+    upsertPotSpy.mockRejectedValueOnce(new Error('บันทึกก้อนเงินไม่สำเร็จ'));
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มก้อนเงิน' }));
+    const potDialog = screen.getByRole('dialog');
+    fireEvent.change(within(potDialog).getByLabelText('ชื่อก้อนเงิน'), { target: { value: 'ก้อนพลาด' } });
+    fireEvent.change(within(potDialog).getByLabelText('งบต่อรอบ'), { target: { value: '500' } });
+    fireEvent.click(within(potDialog).getByRole('button', { name: 'บันทึก' }));
+    const potSaveErr = await screen.findByText('บันทึกก้อนเงินไม่สำเร็จ');
+    expect(potSaveErr.closest('[data-sonner-toast]')?.getAttribute('data-type')).toBe('error');
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'ปิด' }));
+
+    // 5. Pot delete error
+    deletePotSpy.mockRejectedValueOnce(new Error('ลบก้อนเงินไม่สำเร็จ'));
+    fireEvent.click(screen.getByText('ก้อนสำรอง'));
+    const potDelDialog = screen.getByRole('dialog');
+    const holdPotBtn = within(potDelDialog).getByRole('button', { name: 'กดค้างเพื่อลบ' });
+    vi.useFakeTimers();
+    fireEvent.pointerDown(holdPotBtn);
+    act(() => {
+      vi.advanceTimersByTime(HOLD_MS);
+    });
+    vi.useRealTimers();
+    const potDelErr = await screen.findByText('ลบก้อนเงินไม่สำเร็จ');
+    expect(potDelErr.closest('[data-sonner-toast]')?.getAttribute('data-type')).toBe('error');
+    expect(screen.getByText('ก้อนสำรอง').closest('.row-exit')).toBeNull();
   });
 });

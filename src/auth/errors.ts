@@ -39,6 +39,22 @@ export function translateAuthError(error: unknown): string {
     return 'อีเมลหรือรหัสผ่านไม่ถูกต้อง';
   }
 
+  if (
+    lowerCode === 'email_provider_disabled' ||
+    /email logins are disabled|email provider.*disabled|email_provider_disabled/.test(lower)
+  ) {
+    return 'ยังไม่ได้เปิดการล็อกอินด้วยอีเมลใน Supabase';
+  }
+
+  // Check after invalid_credentials so a 401 credential failure is not mislabelled as a bad API key.
+  if (
+    lowerCode === 'invalid_api_key' ||
+    status === 401 ||
+    /invalid api key|invalid_api_key|no api key found in request/.test(lower)
+  ) {
+    return 'ตั้งค่า Supabase key ไม่ถูกต้อง';
+  }
+
   if (lowerCode === 'email_not_confirmed' || /email not confirmed/.test(lower)) {
     return 'บัญชีนี้ยังไม่ได้ยืนยันอีเมล';
   }
