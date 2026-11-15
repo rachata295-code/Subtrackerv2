@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { BottomSheet } from './BottomSheet';
 import { AppToaster, notify } from './Toaster';
 import { HoldToDelete } from './HoldToDelete';
+import { mockMatchMedia } from '../../test/mockMatchMedia';
 
 // The real provider reads localStorage, which makes Node print an experimental-feature warning under jsdom.
 // The toaster only needs the resolved theme, so a controllable stub keeps output clean and lets us test both themes.
@@ -16,6 +17,7 @@ afterEach(() => {
   mockResolved = 'light';
   cleanup();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('<BottomSheet>', () => {
@@ -47,6 +49,38 @@ describe('<BottomSheet>', () => {
       </BottomSheet>,
     );
     fireEvent.click(screen.getByRole('button', { name: 'ปิด' }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('at 375px renders a bottom sheet with handle bar', () => {
+    mockMatchMedia(375);
+    render(
+      <BottomSheet open onOpenChange={() => {}} title="เพิ่มรายการ">
+        <p>เนื้อหา</p>
+      </BottomSheet>,
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.getAttribute('data-vaul-drawer-direction')).toBe('bottom');
+    expect(dialog.className).toContain('rounded-t-card');
+    expect(dialog.querySelector('.h-1.w-8')).not.toBeNull();
+  });
+
+  it('at 1280px renders a full-height right panel without handle bar and closes on Escape', () => {
+    mockMatchMedia(1280);
+    const onOpenChange = vi.fn();
+    render(
+      <BottomSheet open onOpenChange={onOpenChange} title="เพิ่มรายการ">
+        <p>เนื้อหา</p>
+      </BottomSheet>,
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.getAttribute('data-vaul-drawer-direction')).toBe('right');
+    expect(dialog.className).toContain('w-panel');
+    expect(dialog.className).toContain('rounded-l-card');
+    expect(dialog.className).toContain('inset-y-0');
+    expect(dialog.querySelector('.h-1.w-8')).toBeNull();
+
+    fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });
@@ -88,6 +122,37 @@ describe('notify / <AppToaster>', () => {
     });
     expect(await screen.findByText('ลบแล้ว')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'เลิกทำ' })).toBeNull();
+  });
+
+  it('offsets above TabBar on mobile/tablet and skips --tabbar-h offset on desktop (1280px)', async () => {
+    mockMatchMedia(375);
+    render(<AppToaster />);
+    act(() => {
+      notify('m');
+    });
+    await screen.findByText('m');
+    const mobileToaster = document.querySelector('[data-sonner-toaster]') as HTMLElement;
+    expect(mobileToaster.style.getPropertyValue('--offset-bottom')).toContain('--tabbar-h');
+
+    cleanup();
+    mockMatchMedia(768);
+    render(<AppToaster />);
+    act(() => {
+      notify('t');
+    });
+    await screen.findByText('t');
+    const tabletToaster = document.querySelector('[data-sonner-toaster]') as HTMLElement;
+    expect(tabletToaster.style.getPropertyValue('--offset-bottom')).toContain('--tabbar-h');
+
+    cleanup();
+    mockMatchMedia(1280);
+    render(<AppToaster />);
+    act(() => {
+      notify('d');
+    });
+    await screen.findByText('d');
+    const desktopToaster = document.querySelector('[data-sonner-toaster]') as HTMLElement;
+    expect(desktopToaster.style.getPropertyValue('--offset-bottom')).not.toContain('--tabbar-h');
   });
 });
 
