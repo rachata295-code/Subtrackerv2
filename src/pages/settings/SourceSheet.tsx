@@ -210,6 +210,7 @@ function SourceForm({
         editing.archived ? (
           <Button
             variant="secondary"
+            disabled={isSubmitting}
             onClick={() => {
               void onArchiveToggle(editing);
             }}
@@ -221,6 +222,7 @@ function SourceForm({
             <p className="text-center text-sm text-muted">ช่องทางนี้มีรายการผูกอยู่ จึงเก็บถาวรแทนการลบ</p>
             <Button
               variant="secondary"
+              disabled={isSubmitting}
               onClick={() => {
                 void onArchiveToggle(editing);
               }}

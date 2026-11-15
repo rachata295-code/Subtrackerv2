@@ -1,6 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
+import { toast } from 'sonner';
 import { useOptionalAuth } from '../../auth';
 import { ThemeSwitch } from '../../components/ThemeSwitch';
+import { AnimatedRow, ROW_EXIT_MS } from '../../components/ui/AnimatedRow';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { CurrencyField } from '../../components/ui/CurrencyField';
@@ -108,6 +110,34 @@ function SalaryForm({
   );
 }
 
+interface LeavingEntry<T> {
+  item: T;
+  index: number;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return fallback;
+}
+
+/** Keeps deleted/archived rows in their original slot for ROW_EXIT_MS so the exit animation plays before unmounting. */
+function mergeLeavingRows<T extends { id: string }>(
+  current: T[],
+  leaving: LeavingEntry<T>[],
+): { item: T; leaving: boolean }[] {
+  const leavingIds = new Set(leaving.map((entry) => entry.item.id));
+  const result = current.map((item) => ({ item, leaving: leavingIds.has(item.id) }));
+  const presentIds = new Set(current.map((item) => item.id));
+  const missing = leaving.filter((entry) => !presentIds.has(entry.item.id)).sort((a, b) => a.index - b.index);
+  for (const entry of missing) {
+    const targetIdx = Math.min(entry.index, result.length);
+    result.splice(targetIdx, 0, { item: entry.item, leaving: true });
+  }
+  return result;
+}
+
 export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPageProps) {
   const today = todayProp ?? todayBangkok();
   const auth = useOptionalAuth();
@@ -123,58 +153,149 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
   const [potSheetOpen, setPotSheetOpen] = useState(false);
   const [editingPot, setEditingPot] = useState<Pot | null>(null);
 
-  const handleSaveSalary = async (salary: number, payDay: number, budgetStartPeriod: PeriodKey | null) => {
-    await updateSettings.mutateAsync({ salary, payDay, budgetStartPeriod });
-    notify('บันทึกการตั้งค่าแล้ว');
-  };
+  // Track rows added/moved or removed after mount so initial paint never animates (SPEC §5).
+  const [recentActiveSourceIds, setRecentActiveSourceIds] = useState<Set<string>>(() => new Set());
+  const [recentArchivedSourceIds, setRecentArchivedSourceIds] = useState<Set<string>>(() => new Set());
+  const [recentPotIds, setRecentPotIds] = useState<Set<string>>(() => new Set());
+  const [leavingActiveSources, setLeavingActiveSources] = useState<LeavingEntry<PaymentSource>[]>([]);
+  const [leavingArchivedSources, setLeavingArchivedSources] = useState<LeavingEntry<PaymentSource>[]>([]);
+  const [leavingPots, setLeavingPots] = useState<LeavingEntry<Pot>[]>([]);
 
-  const handleSaveSource = async (input: UpsertSourceInput) => {
-    await upsertSource.mutateAsync(input);
-    setSourceSheetOpen(false);
-    notify('บันทึกช่องทางจ่ายแล้ว');
-  };
+  const exitTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  useEffect(() => {
+    const timers = exitTimersRef.current;
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
 
-  const handleArchiveToggleSource = async (source: PaymentSource) => {
-    const nextArchived = !source.archived;
-    await upsertSource.mutateAsync({ ...source, archived: nextArchived });
-    setSourceSheetOpen(false);
-    notify(nextArchived ? 'เก็บถาวรช่องทางแล้ว' : 'นำช่องทางกลับมาใช้แล้ว');
-  };
-
-  const handleDeleteSource = async (sourceId: string) => {
-    await deleteSource.mutateAsync(sourceId);
-    setSourceSheetOpen(false);
-    notify('ลบช่องทางแล้ว');
-  };
-
-  const handleSavePot = async (input: UpsertPotInput) => {
-    await upsertPot.mutateAsync(input);
-    setPotSheetOpen(false);
-    notify('บันทึกก้อนเงินแล้ว');
-  };
-
-  const handleDeletePot = async (potId: string) => {
-    await deletePot.mutateAsync(potId);
-    setPotSheetOpen(false);
-    notify('ลบก้อนเงินแล้ว');
-  };
-
-  const handleSignOut = async () => {
-    const signOutFn = onSignOut ?? auth?.signOut;
-    if (signOutFn) {
-      await signOutFn();
-    }
+  const scheduleRowExit = <T extends { id: string }>(
+    item: T,
+    index: number,
+    setLeaving: Dispatch<SetStateAction<LeavingEntry<T>[]>>,
+  ) => {
+    setLeaving((prev) => [...prev.filter((entry) => entry.item.id !== item.id), { item, index: Math.max(0, index) }]);
+    const timer = setTimeout(() => {
+      exitTimersRef.current.delete(timer);
+      setLeaving((prev) => prev.filter((entry) => entry.item.id !== item.id));
+    }, ROW_EXIT_MS);
+    exitTimersRef.current.add(timer);
   };
 
   const activeSources = (data?.sources ?? []).filter((s) => !s.archived);
   const archivedSources = (data?.sources ?? []).filter((s) => s.archived);
+
+  const handleSaveSalary = async (salary: number, payDay: number, budgetStartPeriod: PeriodKey | null) => {
+    try {
+      await updateSettings.mutateAsync({ salary, payDay, budgetStartPeriod });
+      notify('บันทึกการตั้งค่าแล้ว');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'บันทึกการตั้งค่าไม่สำเร็จ'));
+    }
+  };
+
+  const handleSaveSource = async (input: UpsertSourceInput) => {
+    try {
+      const saved = await upsertSource.mutateAsync(input);
+      if (!input.id) {
+        setRecentActiveSourceIds((prev) => new Set(prev).add(saved.id));
+      }
+      setSourceSheetOpen(false);
+      notify('บันทึกช่องทางจ่ายแล้ว');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'บันทึกช่องทางจ่ายไม่สำเร็จ'));
+    }
+  };
+
+  const handleArchiveToggleSource = async (source: PaymentSource) => {
+    const nextArchived = !source.archived;
+    const list = source.archived ? archivedSources : activeSources;
+    const index = list.findIndex((s) => s.id === source.id);
+    try {
+      const saved = await upsertSource.mutateAsync({ ...source, archived: nextArchived });
+      if (nextArchived) {
+        scheduleRowExit(source, index, setLeavingActiveSources);
+        setRecentArchivedSourceIds((prev) => new Set(prev).add(saved.id));
+      } else {
+        scheduleRowExit(source, index, setLeavingArchivedSources);
+        setRecentActiveSourceIds((prev) => new Set(prev).add(saved.id));
+      }
+      setSourceSheetOpen(false);
+      notify(nextArchived ? 'เก็บถาวรช่องทางแล้ว' : 'นำช่องทางกลับมาใช้แล้ว');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'อัปเดตสถานะช่องทางจ่ายไม่สำเร็จ'));
+    }
+  };
+
+  const handleDeleteSource = async (sourceId: string) => {
+    const activeIdx = activeSources.findIndex((s) => s.id === sourceId);
+    const archivedIdx = archivedSources.findIndex((s) => s.id === sourceId);
+    const target = activeIdx >= 0 ? activeSources[activeIdx] : archivedIdx >= 0 ? archivedSources[archivedIdx] : undefined;
+    try {
+      await deleteSource.mutateAsync(sourceId);
+      if (target) {
+        if (activeIdx >= 0) {
+          scheduleRowExit(target, activeIdx, setLeavingActiveSources);
+        } else {
+          scheduleRowExit(target, archivedIdx, setLeavingArchivedSources);
+        }
+      }
+      setSourceSheetOpen(false);
+      notify('ลบช่องทางแล้ว');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'ลบช่องทางจ่ายไม่สำเร็จ'));
+    }
+  };
+
+  const handleSavePot = async (input: UpsertPotInput) => {
+    try {
+      const saved = await upsertPot.mutateAsync(input);
+      if (!input.id) {
+        setRecentPotIds((prev) => new Set(prev).add(saved.id));
+      }
+      setPotSheetOpen(false);
+      notify('บันทึกก้อนเงินแล้ว');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'บันทึกก้อนเงินไม่สำเร็จ'));
+    }
+  };
+
+  const handleDeletePot = async (potId: string) => {
+    const potIdx = (data?.pots ?? []).findIndex((p) => p.id === potId);
+    const target = potIdx >= 0 ? data?.pots[potIdx] : undefined;
+    try {
+      await deletePot.mutateAsync(potId);
+      if (target) {
+        scheduleRowExit(target, potIdx, setLeavingPots);
+      }
+      setPotSheetOpen(false);
+      notify('ลบก้อนเงินแล้ว');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'ลบก้อนเงินไม่สำเร็จ'));
+    }
+  };
+
+  const handleSignOut = async () => {
+    const signOutFn = onSignOut ?? auth?.signOut;
+    if (!signOutFn) return;
+    try {
+      await signOutFn();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'ออกจากระบบไม่สำเร็จ'));
+    }
+  };
+
+  const activeSourceRows = mergeLeavingRows(activeSources, leavingActiveSources);
+  const archivedSourceRows = mergeLeavingRows(archivedSources, leavingArchivedSources);
+  const potRows = mergeLeavingRows(data?.pots ?? [], leavingPots);
 
   return (
     <>
       <h1 className="text-title font-semibold text-text">ตั้งค่า</h1>
 
       {isLoading ? (
-        <div className="mt-4 space-y-3" role="status" aria-label="กำลังโหลด">
+        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2" role="status" aria-label="กำลังโหลด">
           <Skeleton className="h-36 w-full" />
           <Skeleton className="h-28 w-full" />
           <Skeleton className="h-24 w-full" />
@@ -189,7 +310,7 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
           ) : null}
         </Card>
       ) : data ? (
-        <div className="mt-4 space-y-5">
+        <div data-testid="settings-grid" className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-start">
           <section>
             <SectionHeader title="รายได้และรอบเงินเดือน" />
             <div className="mt-1">
@@ -213,33 +334,18 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
               }}
             />
             <Card padding="none" className="mt-1 px-card py-1">
-              {activeSources.length === 0 ? (
+              {activeSourceRows.length === 0 ? (
                 <EmptyState message="ยังไม่มีช่องทางจ่าย" />
               ) : (
-                activeSources.map((src) => (
-                  <ListRow
+                activeSourceRows.map(({ item: src, leaving }) => (
+                  <AnimatedRow
                     key={src.id}
-                    leading={<span aria-hidden="true" className={`block h-2.5 w-2.5 rounded-dot ${HUE_MARK[src.hue]}`} />}
-                    title={src.name}
-                    detail={formatSourceSummary(src, data.sources)}
-                    amount={null}
-                    onClick={() => {
-                      setEditingSource(src);
-                      setSourceSheetOpen(true);
-                    }}
-                  />
-                ))
-              )}
-            </Card>
-
-            {archivedSources.length > 0 ? (
-              <div className="mt-3">
-                <p className="mb-1 px-1 text-sm text-muted">เก็บถาวรแล้ว</p>
-                <Card padding="none" className="px-card py-1">
-                  {archivedSources.map((src) => (
+                    entering={!leaving && recentActiveSourceIds.has(src.id)}
+                    leaving={leaving}
+                    className="border-b border-rule last:border-b-0"
+                  >
                     <ListRow
-                      key={src.id}
-                      leading={<Pill hue={src.hue}>เก็บถาวร</Pill>}
+                      leading={<span aria-hidden="true" className={`block h-2.5 w-2.5 rounded-dot ${HUE_MARK[src.hue]}`} />}
                       title={src.name}
                       detail={formatSourceSummary(src, data.sources)}
                       amount={null}
@@ -248,6 +354,33 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
                         setSourceSheetOpen(true);
                       }}
                     />
+                  </AnimatedRow>
+                ))
+              )}
+            </Card>
+
+            {archivedSourceRows.length > 0 ? (
+              <div className="mt-3">
+                <p className="mb-1 px-1 text-sm text-muted">เก็บถาวรแล้ว</p>
+                <Card padding="none" className="px-card py-1">
+                  {archivedSourceRows.map(({ item: src, leaving }) => (
+                    <AnimatedRow
+                      key={src.id}
+                      entering={!leaving && recentArchivedSourceIds.has(src.id)}
+                      leaving={leaving}
+                      className="border-b border-rule last:border-b-0"
+                    >
+                      <ListRow
+                        leading={<Pill hue={src.hue}>เก็บถาวร</Pill>}
+                        title={src.name}
+                        detail={formatSourceSummary(src, data.sources)}
+                        amount={null}
+                        onClick={() => {
+                          setEditingSource(src);
+                          setSourceSheetOpen(true);
+                        }}
+                      />
+                    </AnimatedRow>
                   ))}
                 </Card>
               </div>
@@ -264,38 +397,47 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
               }}
             />
             <Card padding="none" className="mt-1 px-card py-1">
-              {data.pots.length === 0 ? (
+              {potRows.length === 0 ? (
                 <EmptyState message="ยังไม่มีก้อนเงิน" />
               ) : (
-                data.pots.map((pot) => (
-                  <ListRow
+                potRows.map(({ item: pot, leaving }) => (
+                  <AnimatedRow
                     key={pot.id}
-                    leading={<span aria-hidden="true" className={`block h-2.5 w-2.5 rounded-dot ${HUE_MARK[pot.hue]}`} />}
-                    title={pot.name}
-                    detail={pot.rollover ? 'ยกยอดคงเหลือไปรอบถัดไป' : 'ไม่ยกยอด'}
-                    amount={pot.perPeriod / 100}
-                    onClick={() => {
-                      setEditingPot(pot);
-                      setPotSheetOpen(true);
-                    }}
-                  />
+                    entering={!leaving && recentPotIds.has(pot.id)}
+                    leaving={leaving}
+                    className="border-b border-rule last:border-b-0"
+                  >
+                    <ListRow
+                      leading={<span aria-hidden="true" className={`block h-2.5 w-2.5 rounded-dot ${HUE_MARK[pot.hue]}`} />}
+                      title={pot.name}
+                      detail={pot.rollover ? 'ยกยอดคงเหลือไปรอบถัดไป' : 'ไม่ยกยอด'}
+                      amount={pot.perPeriod / 100}
+                      onClick={() => {
+                        setEditingPot(pot);
+                        setPotSheetOpen(true);
+                      }}
+                    />
+                  </AnimatedRow>
                 ))
               )}
             </Card>
           </section>
 
-          <section>
-            <SectionHeader title="ธีม" />
-            <Card className="mt-1">
-              <ThemeSwitch />
-            </Card>
-          </section>
+          {/* Group Theme + Account together in the 4th grid cell so the 2-column desktop layout stays balanced with no trailing empty slot. */}
+          <div className="space-y-5">
+            <section>
+              <SectionHeader title="ธีม" />
+              <Card className="mt-1">
+                <ThemeSwitch />
+              </Card>
+            </section>
 
-          <section className="pt-1">
-            <Button variant="secondary" size="lg" className="w-full" onClick={() => void handleSignOut()}>
-              ออกจากระบบ
-            </Button>
-          </section>
+            <section className="pt-1">
+              <Button variant="secondary" size="lg" className="w-full" onClick={() => void handleSignOut()}>
+                ออกจากระบบ
+              </Button>
+            </section>
+          </div>
 
           <SourceSheet
             open={sourceSheetOpen}

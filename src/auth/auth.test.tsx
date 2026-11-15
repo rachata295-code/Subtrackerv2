@@ -307,4 +307,36 @@ describe('translateAuthError', () => {
     );
     expect(translateAuthError({ message: 'Unexpected server error' })).toBe('เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
   });
+
+  it('translates email_provider_disabled to Thai', () => {
+    expect(translateAuthError({ message: 'Email logins are disabled', code: 'email_provider_disabled' })).toBe(
+      'ยังไม่ได้เปิดการล็อกอินด้วยอีเมลใน Supabase',
+    );
+    expect(translateAuthError({ message: 'anything', code: 'EMAIL_PROVIDER_DISABLED', status: 401 })).toBe(
+      'ยังไม่ได้เปิดการล็อกอินด้วยอีเมลใน Supabase',
+    );
+    expect(translateAuthError({ message: 'Email logins are disabled' })).toBe(
+      'ยังไม่ได้เปิดการล็อกอินด้วยอีเมลใน Supabase',
+    );
+  });
+
+  it('translates invalid_api_key and non-credential 401 responses to Supabase key error', () => {
+    expect(translateAuthError({ message: 'Invalid API key', code: 'invalid_api_key', status: 401 })).toBe(
+      'ตั้งค่า Supabase key ไม่ถูกต้อง',
+    );
+    expect(translateAuthError({ message: 'anything', code: 'invalid_api_key' })).toBe(
+      'ตั้งค่า Supabase key ไม่ถูกต้อง',
+    );
+    expect(translateAuthError({ message: 'Invalid API key' })).toBe('ตั้งค่า Supabase key ไม่ถูกต้อง');
+    expect(translateAuthError({ message: 'Unauthorized', status: 401 })).toBe('ตั้งค่า Supabase key ไม่ถูกต้อง');
+  });
+
+  it('keeps invalid_credentials priority even when status is 401', () => {
+    expect(translateAuthError({ message: 'anything', code: 'invalid_credentials', status: 401 })).toBe(
+      'อีเมลหรือรหัสผ่านไม่ถูกต้อง',
+    );
+    expect(translateAuthError({ message: 'Invalid login credentials', status: 401 })).toBe(
+      'อีเมลหรือรหัสผ่านไม่ถูกต้อง',
+    );
+  });
 });
