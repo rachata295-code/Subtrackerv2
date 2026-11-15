@@ -1,12 +1,59 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
+import * as domain from '../../domain';
+import { parseAmount } from '../../lib/parseAmount';
+import type { AmountExpressionResult } from '../../types/finance';
 import { TextField } from './TextField';
 import { CurrencyField } from './CurrencyField';
 import { SelectField } from './SelectField';
 import { Switch } from './Switch';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+/** Uses real domain.evaluateAmountExpression when implemented, or SPEC §4 B1 rules while stubbed. */
+function specEvaluateAmountExpression(text: string): AmountExpressionResult {
+  const trimmed = text.trim();
+  if (!trimmed) return { error: 'กรอกจำนวนเงินให้ถูกต้อง' };
+  const normalized = trimmed.replace(/\u2212/g, '-');
+  if (/[^0-9.,+\-\s฿]/.test(normalized)) return { error: 'รูปแบบตัวเลขไม่ถูกต้อง' };
+  const parts = normalized.split(/([+-])/);
+  if (parts.length === 0 || parts[0] === '' || parts[parts.length - 1] === '') {
+    return { error: 'นิพจน์ไม่สมบูรณ์' };
+  }
+  let total = 0;
+  let op = 1;
+  for (let i = 0; i < parts.length; i++) {
+    const token = parts[i]!.trim();
+    if (i % 2 === 1) {
+      op = token === '-' ? -1 : 1;
+      continue;
+    }
+    const parsed = parseAmount(token);
+    if (parsed === null) return { error: 'รูปแบบตัวเลขไม่ถูกต้อง' };
+    total += op * Math.round(Number((parsed * 100).toPrecision(15)));
+  }
+  if (total <= 0) return { error: 'ยอดต้องมากกว่า 0' };
+  return { value: total };
+}
+
+function spyEvaluateExpression() {
+  const orig = domain.evaluateAmountExpression;
+  return vi.spyOn(domain, 'evaluateAmountExpression').mockImplementation((text: string) => {
+    try {
+      return orig(text);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('not implemented')) {
+        return specEvaluateAmountExpression(text);
+      }
+      throw err;
+    }
+  });
+}
 
 describe('<TextField>', () => {
   it('links the error to the input via aria-describedby', () => {
@@ -100,6 +147,90 @@ describe('<CurrencyField>', () => {
     render(<Harness error="ต้องมากกว่า 0" />);
     const input = screen.getByLabelText('จำนวนเงิน');
     expect(document.getElementById(input.getAttribute('aria-describedby')!)!.textContent).toContain('ต้องมากกว่า 0');
+  });
+
+  it('evaluates + and - / − expressions via evaluateAmountExpression and shows "= ฿140.00" preview', () => {
+    const spy = spyEvaluateExpression();
+    render(<Harness />);
+    const input = screen.getByLabelText('จำนวนเงิน') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: '45+60+35' } });
+    expect(spy).toHaveBeenCalledWith('45+60+35');
+    expect(screen.getByTestId('value').textContent).toBe('140');
+    expect(screen.getByText('= ฿140.00')).toBeTruthy();
+
+    fireEvent.change(input, { target: { value: '1,200+45.50' } });
+    expect(screen.getByTestId('value').textContent).toBe('1245.5');
+    expect(screen.getByText('= ฿1,245.50')).toBeTruthy();
+
+    // Real Unicode minus U+2212 also evaluates cleanly.
+    fireEvent.change(input, { target: { value: '120−15' } });
+    expect(screen.getByTestId('value').textContent).toBe('105');
+    expect(screen.getByText('= ฿105.00')).toBeTruthy();
+
+    // Plain single numbers do not show the "= ฿..." preview.
+    fireEvent.change(input, { target: { value: '140' } });
+    expect(screen.getByTestId('value').textContent).toBe('140');
+    expect(screen.queryByText(/^= ฿/)).toBeNull();
+  });
+
+  it('shows expression errors under the field without crashing and reports null', () => {
+    spyEvaluateExpression();
+    render(<Harness />);
+    const input = screen.getByLabelText('จำนวนเงิน') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: '10-20' } });
+    expect(screen.getByTestId('value').textContent).toBe('null');
+    expect(screen.getByText('ยอดต้องมากกว่า 0')).toBeTruthy();
+    expect(document.getElementById(input.getAttribute('aria-describedby')!)!.textContent).toContain('ยอดต้องมากกว่า 0');
+
+    fireEvent.change(input, { target: { value: '45+' } });
+    expect(screen.getByTestId('value').textContent).toBe('null');
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+
+    fireEvent.change(input, { target: { value: '45*2' } });
+    expect(screen.getByTestId('value').textContent).toBe('null');
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('shows + and − operator buttons only on coarse pointer (touch) devices and inserts operators', () => {
+    spyEvaluateExpression();
+    const stubCoarse = (coarse: boolean) => {
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: query === '(pointer: coarse)' ? coarse : false,
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => true,
+      }));
+    };
+
+    stubCoarse(false);
+    const { unmount } = render(<Harness />);
+    expect(screen.queryByRole('button', { name: 'บวก' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'ลบ' })).toBeNull();
+    unmount();
+
+    stubCoarse(true);
+    render(<Harness />);
+    const input = screen.getByLabelText('จำนวนเงิน') as HTMLInputElement;
+    const plusBtn = screen.getByRole('button', { name: 'บวก' });
+    const minusBtn = screen.getByRole('button', { name: 'ลบ' });
+    expect(plusBtn.className).toContain('min-h-tap');
+    expect(minusBtn.className).toContain('min-h-tap');
+
+    fireEvent.change(input, { target: { value: '45' } });
+    fireEvent.click(plusBtn);
+    expect(input.value).toBe('45+');
+    fireEvent.change(input, { target: { value: '45+60' } });
+    fireEvent.click(minusBtn);
+    expect(input.value).toBe('45+60−');
+    fireEvent.change(input, { target: { value: '45+60−5' } });
+    expect(screen.getByTestId('value').textContent).toBe('100');
+    expect(screen.getByText('= ฿100.00')).toBeTruthy();
   });
 });
 

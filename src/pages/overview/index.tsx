@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus } from 'lucide-react';
+import { HotBar } from '../../components/HotBar';
 import { AllocationBar } from '../../components/ui/AllocationBar';
 import { AnimatedMoney } from '../../components/ui/AnimatedMoney';
 import { AnimatedRow, ROW_EXIT_MS } from '../../components/ui/AnimatedRow';
@@ -19,6 +20,7 @@ import { notify } from '../../components/ui/Toaster';
 import { billAmount, payPeriod, potStatus, statementFor, upcomingOutflows } from '../../domain';
 import {
   useCreateTransaction,
+  useCreateTransactions,
   useDeleteBillPayment,
   useDeleteTransaction,
   useFinanceData,
@@ -30,6 +32,7 @@ import {
   type Category,
   type CreateTransactionInput,
   type FinanceData,
+  type HotbarItem,
   type ISODate,
   type Outflow,
   type PayPeriod,
@@ -252,11 +255,13 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
   const [searchParams, setSearchParams] = useSearchParams();
   const finance = useFinanceData();
   const createTransaction = useCreateTransaction();
+  const createTransactions = useCreateTransactions();
   const deleteTransaction = useDeleteTransaction();
   const payBill = usePayBill();
   const deleteBillPayment = useDeleteBillPayment();
 
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [prefillItem, setPrefillItem] = useState<HotbarItem | null>(null);
   const [payingKeys, setPayingKeys] = useState<Set<string>>(() => new Set());
   const [exitingBills, setExitingBills] = useState<Map<string, ExitingBill>>(() => new Map());
   // Only rows created after first paint animate in; initial list rows stay static (SPEC §5).
@@ -271,6 +276,7 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
 
   useEffect(() => {
     if (searchParams.get('add') !== '1') return;
+    setPrefillItem(null);
     setSheetOpen(true);
     const next = new URLSearchParams(searchParams);
     next.delete('add');
@@ -475,23 +481,36 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
       });
   };
 
-  const handleCreateTransaction = async (input: CreateTransactionInput) => {
+  const handleCreateTransactions = async (inputs: CreateTransactionInput[]) => {
     try {
-      const created = await createTransaction.mutateAsync(input);
-      setAddedTxIds((prev) => new Set(prev).add(created.id));
+      // Single-row submits keep using createTransaction so Phase 1 flows and repo callers stay unchanged;
+      // multi-row batches go through createTransactions atomically once.
+      const createdList =
+        inputs.length === 1
+          ? [await createTransaction.mutateAsync(inputs[0]!)]
+          : await createTransactions.mutateAsync(inputs);
+
+      const createdIds = createdList.map((tx) => tx.id);
+      setAddedTxIds((prev) => {
+        const next = new Set(prev);
+        for (const id of createdIds) next.add(id);
+        return next;
+      });
       setSheetOpen(false);
+      setPrefillItem(null);
+
       let undone = false;
-      notify('บันทึกแล้ว', {
+      const label = createdList.length === 1 ? 'บันทึกแล้ว' : `บันทึก ${createdList.length} รายการแล้ว`;
+      notify(label, {
         undo: () => {
           if (undone) return;
           undone = true;
           setAddedTxIds((prev) => {
-            if (!prev.has(created.id)) return prev;
             const next = new Set(prev);
-            next.delete(created.id);
+            for (const id of createdIds) next.delete(id);
             return next;
           });
-          void deleteTransaction.mutateAsync(created.id).catch((err) => {
+          void Promise.all(createdIds.map((id) => deleteTransaction.mutateAsync(id))).catch((err) => {
             notify(`เลิกทำไม่สำเร็จ${formatErrorSuffix(err)}`);
           });
         },
@@ -537,10 +556,24 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
             <IconButton
               label="เพิ่มรายการ"
               icon={<Plus size={22} strokeWidth={1.6} aria-hidden="true" />}
-              onClick={() => setSheetOpen(true)}
+              onClick={() => {
+                setPrefillItem(null);
+                setSheetOpen(true);
+              }}
               className="!bg-accent !text-on-accent hover-fine:hover:opacity-90 lg:hidden"
             />
           </header>
+
+          <HotBar
+            data={data}
+            today={today}
+            className="order-1 lg:order-none"
+            onEdit={(item) => {
+              setPrefillItem(item);
+              setSheetOpen(true);
+            }}
+            onSaved={(tx) => setAddedTxIds((prev) => new Set(prev).add(tx.id))}
+          />
 
           <div
             data-testid="pots-grid"
@@ -766,12 +799,18 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
 
       <QuickAddSheet
         open={sheetOpen}
-        onOpenChange={setSheetOpen}
+        onOpenChange={(open) => {
+          setSheetOpen(open);
+          if (!open) setPrefillItem(null);
+        }}
         today={today}
+        data={data}
         sources={activeSources}
         pots={data.pots}
         defaultPotId={playPot.id}
-        onSubmit={handleCreateTransaction}
+        prefill={prefillItem}
+        onSubmit={handleCreateTransactions}
+        onHotbarSaved={(tx) => setAddedTxIds((prev) => new Set(prev).add(tx.id))}
       />
     </>
   );
