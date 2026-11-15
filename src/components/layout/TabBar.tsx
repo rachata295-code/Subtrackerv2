@@ -7,17 +7,15 @@ interface TabItem {
   Icon: LucideIcon;
 }
 
-// Only Overview exists in this phase; the other three share /design until their screens are built (phase 1).
 const ITEMS: TabItem[] = [
-  { to: '/preview-home', label: 'ภาพรวม', Icon: House },
-  { to: '/design', label: 'รายการ', Icon: List },
-  { to: '/design', label: 'บิล & ผ่อน', Icon: Receipt },
-  { to: '/design', label: 'ตั้งค่า', Icon: Settings },
+  { to: '/', label: 'ภาพรวม', Icon: House },
+  { to: '/entries', label: 'รายการ', Icon: List },
+  { to: '/bills', label: 'บิล & ผ่อน', Icon: Receipt },
+  { to: '/settings', label: 'ตั้งค่า', Icon: Settings },
 ];
 
 export function TabBar() {
   const { pathname } = useLocation();
-  // Several tabs temporarily share a path, so NavLink would mark all of them current. Pick the first match instead.
   const activeIndex = ITEMS.findIndex((item) => item.to === pathname);
 
   return (
