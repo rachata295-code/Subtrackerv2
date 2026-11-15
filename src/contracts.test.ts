@@ -192,28 +192,14 @@ describe('domain contracts', () => {
     expect(domain.potStatus(pot, '2026-11', financeFixture).left).toBe(66_207);
   });
 
-  it('exports Phase 2 domain stubs matching SPEC §6 signatures', () => {
-    expect(() => domain.spendingByCategory(financeFixture, '2026-11')).toThrow(
-      'not implemented: spendingByCategory',
-    );
-    expect(() => domain.spendingHistory(financeFixture, '2026-11', 6)).toThrow(
-      'not implemented: spendingHistory',
-    );
-    expect(() => domain.hotbarItems(financeFixture, '2026-11-15', 8)).toThrow(
-      'not implemented: hotbarItems',
-    );
-    expect(() => domain.evaluateAmountExpression('45+60')).toThrow(
-      'not implemented: evaluateAmountExpression',
-    );
-    expect(() => domain.expectedBalance('src-bank', financeFixture)).toThrow(
-      'not implemented: expectedBalance',
-    );
-    expect(() => domain.pendingIncomes(financeFixture, '2026-11-15')).toThrow(
-      'not implemented: pendingIncomes',
-    );
-    expect(() => domain.forecast(financeFixture, 'src-bank', '2026-11-15')).toThrow(
-      'not implemented: forecast',
-    );
+  it('exports Phase 2 domain functions matching SPEC §6 signatures', () => {
+    expect(domain.spendingByCategory(financeFixture, '2026-11').total).toBe(287_893);
+    expect(domain.spendingHistory(financeFixture, '2026-11', 6)).toHaveLength(6);
+    expect(domain.hotbarItems(financeFixture, '2026-11-15', 8).length).toBeGreaterThanOrEqual(2);
+    expect(domain.evaluateAmountExpression('45+60')).toEqual({ value: 10_500 });
+    expect(domain.expectedBalance('src-bank', financeFixture)).toBe(468_000);
+    expect(domain.pendingIncomes(financeFixture, '2026-11-15')).toHaveLength(1);
+    expect(domain.forecast(financeFixture, 'src-bank', '2026-11-15').start).toBe(468_000);
   });
 
   it('exports PotStatus and Outflow contract types', () => {
