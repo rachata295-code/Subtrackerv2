@@ -30,6 +30,26 @@ npm run dev        # http://localhost:5173
 
 Before committing: `npm run test:run && npm run typecheck && npm run check:motion && npm run build`.
 
+## Supabase setup
+
+SubTracker v2 stores all data in a dedicated Supabase project protected by Row Level Security (`user_id = auth.uid()`). Never put a `service_role` key in `.env*`, frontend code, or GitHub Secrets.
+
+1. **Create a new Supabase project**
+   - Choose **Southeast Asia (Singapore)** (`ap-southeast-1`) as the region.
+2. **Configure Auth (single-user email + password)**
+   - In **Authentication → Providers → Email**, disable **Confirm email** so login works without an email server.
+   - Create your user account in **Authentication → Users → Add user** (email + password, auto-confirm).
+3. **Run SQL schema and seed function**
+   - Open **SQL Editor**, paste and run `supabase/schema.sql`.
+   - Next, paste and run `supabase/seed.sql` to create the idempotent `seed_defaults()` RPC (called on first login to insert default settings, 3 payment sources, and 2 budget pots).
+4. **Local environment variables**
+   - Copy `.env.example` to `.env.local` and fill in your **Project URL** (`VITE_SUPABASE_URL`) and **anon public key** (`VITE_SUPABASE_ANON_KEY`) from **Project Settings → API**.
+   - To run locally with in-memory fixture data without Supabase, set `VITE_USE_FIXTURES=1`.
+5. **GitHub Secrets (for CI / GitHub Pages deploy)**
+   - In GitHub **Settings → Secrets and variables → Actions**, add:
+     - `VITE_SUPABASE_URL`
+     - `VITE_SUPABASE_ANON_KEY`
+
 ## Deploy base (`VITE_BASE`)
 
 `vite.config.ts` reads `base` from `VITE_BASE` and defaults to `/`. The app is deployed to GitHub Pages at
