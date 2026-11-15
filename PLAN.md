@@ -236,24 +236,36 @@ SubTracker v1 (`qf6rrqnymb-dev.github.io`) เป็นแอปการเง�
 
 ## 9. เกณฑ์ว่าเสร็จ (Definition of Done)
 
-- [x] `npm run typecheck`, `npm run test:run`, `npm run build` ผ่าน
+- [x] `npm run typecheck`, `npm run test:run`, `npm run test:tz`, `npm run check:motion`, `npm run build` ผ่าน
 - [ ] ข้อความทุกคู่ (text บน surface, ink บน tile bg) contrast ≥4.5:1 · mark บน surface ≥3:1 — **ทั้งสองธีม** (มี test หรือสคริปต์ตรวจ)
 - [x] `lint.mjs --app` และ `inspect.mjs --app` บน build จริง: 0 FAIL ที่ 390 / 768 / 1440
 - [x] ฟอนต์ไทยแสดงถูกเมื่อปิดเน็ต (หลังโหลดครั้งแรก)
-- [ ] ทุก animation เคารพ reduced-motion · ไม่มี `transition: all` ใน source
-- [ ] ใช้งานด้วยคีย์บอร์ดได้ทุก control · focus มองเห็นชัดทั้งสองธีม
+- [x] `npm run check:motion` ไม่พบ `transition: all` / `transition-all` / `scale(0)` · reduced-motion CSS ใน `src/styles/motion.css`
+- [ ] ใช้งานด้วยคีย์บอร์ดได้ทุก control · focus มองเห็นชัดทั้งสองธีม (ยังต้องตรวจ VoiceOver + HoldToDelete บนอุปกรณ์จริง)
 - [ ] เปิดบน iPhone (PWA) แล้ว TabBar ไม่ทับ home indicator
+
+## 10. สถานะเฟส 1 และสิ่งที่ยกไปเฟส 2
+
+### สถานะเฟส 1 (Complete — `p1/08-integration`)
+- **Backend & Auth**: Supabase schema + RLS (`supabase/schema.sql`), `seed_defaults()` (`supabase/seed.sql`), email+password auth + route guard (`src/auth/`), repo & TanStack Query hooks (`src/data/financeRepo.ts`, `src/hooks/useFinance.ts` รวม `refetch` และ `useDeleteBillPayment`).
+- **Domain logic**: ฟังก์ชันบริสุทธิ์ครบตาม `docs/phase1/SPEC.md §4` (`payPeriod`, `statementFor`, `subscriptionCharges`, `installmentSchedule`, `billAmount`, `upcomingOutflows`, `potStatus`) พร้อม test ตัวเลขจริง พ.ย. 2026 (`฿662.07`) และ timezone test (`Asia/Bangkok`, `UTC`).
+- **หน้าจอหลักทั้ง 5 จอ**: ภาพรวม (`/#/`), บิล & ผ่อน (`/#/bills`), รายการ (`/#/entries`), ตั้งค่า (`/#/settings`), เข้าสู่ระบบ (`/#/login`) + app-level `ErrorBoundary` และ shared `SelectField` · เชื่อม hooks จริงและ domain จริง ไม่มี stub ค้าง.
+- **CI/CD & Testing**: GitHub Actions deploy ไป GitHub Pages (`.github/workflows/deploy.yml` ตรวจ typecheck + test + test:tz + check:motion ก่อน deploy) และมี full-stack in-memory E2E test (`src/e2e/specFlow.test.tsx`); การทดสอบกับ Supabase จริงต้องใส่ `VITE_SUPABASE_URL` และ `VITE_SUPABASE_ANON_KEY` ใน `.env.local` / GitHub Secrets และสร้าง user ใน Auth.
+
+### สิ่งที่ยกไปเฟส 2
+- Export / Import ข้อมูลสำรอง (JSON) · รายงาน/กราฟเปรียบเทียบรายเดือน · นำเข้า statement อัตโนมัติ · แจ้งเตือนก่อนครบกำหนดบิล · รองรับหลายผู้ใช้/ก้อนเงินร่วมกัน
+- เก็บงาน UX/PWA เชิงลึก: ทดสอบ safe-area บน iPhone PWA จริง · ปรับ VoiceOver activation บน `HoldToDelete` · ตัด font subset ให้เล็กลง · เปลี่ยน PWA placeholder icon เป็นไอคอนจริง
 
 ---
 
-## 10. ที่ปล่อยให้ builder ตัดสินใจ
+## 11. ที่ปล่อยให้ builder ตัดสินใจ
 
 - โครงโฟลเดอร์ภายใน `src/`, ชื่อไฟล์, การแยก component
 - ค่าเฉดสำรอง (lilac/rose) ภายในกติกา §5.3
 - ปรับค่าสีโหมดมืดเล็กน้อยเพื่อให้ผ่าน contrast โดยคงกติกา §5.2
 - ชุดไอคอน (outline 16–20px ชุดเดียว เช่น Lucide)
 
-## 11. งานที่เจ้าของต้องทำเอง
+## 12. งานที่เจ้าของต้องทำเอง
 
 - สร้าง repo ใหม่ในบัญชี GitHub อีกบัญชี แล้วส่งชื่อ repo มา (ระหว่างนี้งานอยู่ที่ `~/Developer/subtracker`
   และ init git ไว้ในเครื่องก่อน)

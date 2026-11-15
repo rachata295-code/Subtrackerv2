@@ -18,7 +18,7 @@ describe('<AppShell>', () => {
     );
 
     const shell = container.firstElementChild as HTMLElement;
-    expect(shell.className).toContain('max-w-[480px]');
+    expect(shell.className).toContain('max-w-phone');
     expect(shell.className).toContain('mx-auto');
     expect(shell.className).toContain('h-dvh');
 

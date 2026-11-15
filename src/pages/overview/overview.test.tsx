@@ -6,15 +6,10 @@ import { financeFixture } from '../../fixtures/finance';
 import type {
   BillPayment,
   CreateTransactionInput,
-  FinanceData,
   ISODate,
   Outflow,
   PayBillInput,
-  PaymentSource,
-  PeriodKey,
   Pot,
-  PotStatus,
-  Satang,
   Transaction,
   UseFinanceData,
 } from '../../types/finance';
@@ -28,133 +23,7 @@ vi.mock('../../components/ThemeProvider', () => ({
   useTheme: () => ({ pref: 'light', resolved: 'light', setPref: () => {} }),
 }));
 
-// Mock domain functions so OverviewPage tests can verify SPEC §4 behaviour independently of prompt 02.
-vi.mock('../../domain', () => ({
-  payPeriod: vi.fn(),
-  statementFor: vi.fn(),
-  subscriptionCharges: vi.fn(),
-  installmentSchedule: vi.fn(),
-  billAmount: vi.fn(),
-  upcomingOutflows: vi.fn(),
-  potStatus: vi.fn(),
-}));
-
 const TODAY: ISODate = '2026-11-15';
-
-const BASE_OUTFLOWS: Outflow[] = [
-  {
-    date: '2026-11-24',
-    dueBy: false,
-    title: 'จ่ายบิลบัตรเครดิต',
-    amount: 107_700,
-    sourceId: 'src-card',
-    kind: 'bill',
-    counted: true,
-    statementKey: '2026-11',
-  },
-  {
-    date: '2026-11-25',
-    dueBy: false,
-    title: 'Gemini + YouTube',
-    amount: 27_900,
-    sourceId: 'src-card',
-    kind: 'charge',
-    counted: false,
-    statementKey: '2026-12',
-  },
-  {
-    date: '2026-12-01',
-    dueBy: false,
-    title: 'Claude',
-    amount: 69_900,
-    sourceId: 'src-card',
-    kind: 'charge',
-    counted: false,
-    statementKey: '2026-12',
-  },
-  {
-    date: '2026-12-03',
-    dueBy: false,
-    title: 'iCloud',
-    amount: 9_900,
-    sourceId: 'src-card',
-    kind: 'charge',
-    counted: false,
-    statementKey: '2026-12',
-  },
-  {
-    date: '2026-12-10',
-    dueBy: true,
-    title: 'AirPods งวด 3/10',
-    amount: 138_193,
-    sourceId: 'src-spay',
-    kind: 'bill',
-    counted: true,
-    statementKey: '2026-11',
-  },
-];
-
-const PLAY_STATUS_OPEN: PotStatus = {
-  carryIn: 54_100,
-  budget: 354_100,
-  reserved: 245_893,
-  spent: 42_000,
-  left: 66_207,
-  over: false,
-};
-
-const ESSENTIAL_STATUS: PotStatus = {
-  carryIn: 0,
-  budget: 720_000,
-  reserved: 0,
-  spent: 250_000,
-  left: 470_000,
-  over: false,
-};
-
-function setupDefaultDomainMocks() {
-  vi.mocked(domain.payPeriod).mockReturnValue({
-    key: '2026-11',
-    start: '2026-11-10',
-    end: '2026-12-09',
-  });
-
-  vi.mocked(domain.statementFor).mockImplementation((src: PaymentSource, chargeDate: ISODate) => {
-    if (src.kind === 'credit_card') {
-      if (chargeDate < '2026-11-10') {
-        return { key: '2026-11', start: '2026-10-10', end: '2026-11-09', dueDate: '2026-11-24' };
-      }
-      return { key: '2026-12', start: '2026-11-10', end: '2026-12-09', dueDate: '2026-12-24' };
-    }
-    return { key: '2026-11', start: '2026-11-01', end: '2026-11-30', dueDate: '2026-12-10' };
-  });
-
-  vi.mocked(domain.billAmount).mockImplementation((src: PaymentSource, statementKey: PeriodKey): Satang => {
-    if (src.id === 'src-card' && statementKey === '2026-11') return 107_700;
-    if (src.id === 'src-spay' && statementKey === '2026-11') return 138_193;
-    return 0;
-  });
-
-  vi.mocked(domain.upcomingOutflows).mockImplementation((data: FinanceData) => {
-    const paidSet = new Set(data.payments.map((p) => `${p.sourceId}:${p.statementKey}`));
-    return BASE_OUTFLOWS.filter(
-      (o) => o.kind !== 'bill' || !paidSet.has(`${o.sourceId}:${o.statementKey ?? ''}`),
-    );
-  });
-
-  vi.mocked(domain.potStatus).mockImplementation((pot: Pot, _periodKey: PeriodKey, data: FinanceData) => {
-    if (pot.id === 'pot-essential') return ESSENTIAL_STATUS;
-    const cardPaid = data.payments.some((p) => p.sourceId === 'src-card' && p.statementKey === '2026-11');
-    if (cardPaid) {
-      return {
-        ...PLAY_STATUS_OPEN,
-        reserved: 138_193,
-        spent: 42_000 + 107_700,
-      };
-    }
-    return PLAY_STATUS_OPEN;
-  });
-}
 
 let mockFinanceState: UseFinanceData = {
   data: financeFixture,
@@ -165,6 +34,7 @@ let mockFinanceState: UseFinanceData = {
 let createTxSpy = vi.fn<(input: CreateTransactionInput) => Promise<Transaction>>();
 let deleteTxSpy = vi.fn<(id: string) => Promise<void>>();
 let payBillSpy = vi.fn<(input: PayBillInput) => Promise<BillPayment>>();
+let deleteBillPaymentSpy = vi.fn<(id: string) => Promise<void>>();
 
 function renderOverview() {
   return render(
@@ -184,6 +54,7 @@ beforeEach(() => {
   createTxSpy = vi.fn(async (input) => ({ id: 'tx-new-1', ...input }));
   deleteTxSpy = vi.fn(async () => {});
   payBillSpy = vi.fn(async (input) => ({ id: 'pay-new-1', ...input }));
+  deleteBillPaymentSpy = vi.fn(async () => {});
 
   vi.spyOn(financeHooks, 'useFinanceData').mockImplementation(() => mockFinanceState);
   vi.spyOn(financeHooks, 'useCreateTransaction').mockImplementation(() => ({
@@ -210,8 +81,14 @@ beforeEach(() => {
     isPending: false,
     error: null,
   }));
-
-  setupDefaultDomainMocks();
+  vi.spyOn(financeHooks, 'useDeleteBillPayment').mockImplementation(() => ({
+    mutate: (id) => {
+      void deleteBillPaymentSpy(id);
+    },
+    mutateAsync: deleteBillPaymentSpy,
+    isPending: false,
+    error: null,
+  }));
 });
 
 afterEach(() => {
@@ -245,6 +122,25 @@ describe('<OverviewPage>', () => {
   });
 
   it('shows essential pot (pot 2) in a single row with spent, budget, and left', () => {
+    mockFinanceState = {
+      ...mockFinanceState,
+      data: {
+        ...financeFixture,
+        transactions: [
+          ...financeFixture.transactions,
+          {
+            id: 'tx-nov-essential',
+            date: '2026-11-12',
+            amount: 250_000,
+            direction: 'out',
+            sourceId: 'src-bank',
+            potId: 'pot-essential',
+            category: 'other',
+            note: 'ค่าห้อง',
+          },
+        ],
+      },
+    };
     renderOverview();
     const essential = screen.getByTestId('essential-pot');
     expect(within(essential).getByRole('heading', { level: 2, name: 'ใช้จ่ายจำเป็น' })).toBeTruthy();
@@ -259,11 +155,11 @@ describe('<OverviewPage>', () => {
   it('renders upcoming outflows with bills strong + pay button, charges with Pill + เข้าบิล <เดือน>, and total excluding charges', () => {
     renderOverview();
     const upcoming = screen.getByTestId('upcoming');
-    expect(within(upcoming).getByText('จ่ายบิลบัตรเครดิต')).toBeTruthy();
+    expect(within(upcoming).getByText('บิล บัตรเครดิต')).toBeTruthy();
     expect(within(upcoming).getByText('Gemini + YouTube')).toBeTruthy();
     expect(within(upcoming).getByText('Claude')).toBeTruthy();
     expect(within(upcoming).getByText('iCloud')).toBeTruthy();
-    expect(within(upcoming).getByText('AirPods งวด 3/10')).toBeTruthy();
+    expect(within(upcoming).getByText('บิล SPayLater')).toBeTruthy();
 
     // Charge rows show channel pill and "เข้าบิล ธ.ค."
     expect(within(upcoming).getAllByText('เข้าบิล ธ.ค.')).toHaveLength(3);
@@ -272,8 +168,9 @@ describe('<OverviewPage>', () => {
   });
 
   it('caps upcoming outflows at 5 rows and navigates to /bills on ดูทั้งหมด', () => {
-    vi.mocked(domain.upcomingOutflows).mockReturnValue([
-      ...BASE_OUTFLOWS,
+    const base = domain.upcomingOutflows(financeFixture, TODAY);
+    vi.spyOn(domain, 'upcomingOutflows').mockReturnValue([
+      ...base,
       {
         date: '2026-12-12',
         dueBy: false,
@@ -283,7 +180,7 @@ describe('<OverviewPage>', () => {
         kind: 'charge',
         counted: false,
         statementKey: '2027-01',
-      },
+      } satisfies Outflow,
     ]);
     renderOverview();
     const upcoming = screen.getByTestId('upcoming');
@@ -355,8 +252,9 @@ describe('<OverviewPage>', () => {
   });
 
   it('renders over-budget status tokens when potStatus.over is true', () => {
-    vi.mocked(domain.potStatus).mockImplementation((pot: Pot) => {
-      if (pot.id === 'pot-essential') return ESSENTIAL_STATUS;
+    const realPotStatus = domain.potStatus;
+    vi.spyOn(domain, 'potStatus').mockImplementation((pot: Pot, periodKey, data) => {
+      if (pot.id === 'pot-essential') return realPotStatus(pot, periodKey, data);
       return {
         carryIn: 0,
         budget: 300_000,
@@ -394,9 +292,9 @@ describe('<OverviewPage>', () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
-  it('renders ErrorState instead of crashing when domain stubs throw', () => {
-    vi.mocked(domain.payPeriod).mockImplementation(() => {
-      throw new Error('not implemented: payPeriod');
+  it('renders ErrorState instead of crashing when domain calculation throws', () => {
+    vi.spyOn(domain, 'payPeriod').mockImplementation(() => {
+      throw new Error('domain failure');
     });
     renderOverview();
     expect(screen.getByRole('heading', { level: 1, name: 'ภาพรวม' })).toBeTruthy();

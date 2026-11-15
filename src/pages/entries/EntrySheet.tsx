@@ -1,9 +1,10 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { BottomSheet } from '../../components/ui/BottomSheet';
 import { Button } from '../../components/ui/Button';
 import { CurrencyField } from '../../components/ui/CurrencyField';
 import { HoldToDelete } from '../../components/ui/HoldToDelete';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
+import { SelectField } from '../../components/ui/SelectField';
 import { TextField } from '../../components/ui/TextField';
 import { CATEGORY_OPTIONS, isValidISODate } from './entriesUtils';
 import type {
@@ -32,35 +33,6 @@ const DIRECTION_OPTIONS: { value: 'out' | 'in'; label: string }[] = [
   { value: 'in', label: 'รายรับ' },
 ];
 
-function SelectRow({
-  label,
-  value,
-  onChange,
-  children,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  children: React.ReactNode;
-}) {
-  const id = useId();
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-sm font-medium text-text">
-        {label}
-      </label>
-      <select
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-11 w-full rounded-tile border border-control bg-surface px-3 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-      >
-        {children}
-      </select>
-    </div>
-  );
-}
-
 function EntryForm({
   sources,
   pots,
@@ -87,6 +59,19 @@ function EntryForm({
 
   const [amountError, setAmountError] = useState<string>();
   const [dateError, setDateError] = useState<string>();
+
+  const sourceOptions = useMemo(
+    () => selectableSources.map((src) => ({ value: src.id, label: src.name })),
+    [selectableSources],
+  );
+  const potOptions = useMemo(
+    () => [{ value: '', label: 'ไม่ระบุก้อน' }, ...pots.map((pot) => ({ value: pot.id, label: pot.name }))],
+    [pots],
+  );
+  const categoryOptions = useMemo(
+    () => CATEGORY_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label })),
+    [],
+  );
 
   const handleDirectionChange = (next: 'out' | 'in') => {
     setDirection(next);
@@ -137,30 +122,26 @@ function EntryForm({
         }}
       />
 
-      <SelectRow label="ช่องทาง" value={sourceId} onChange={setSourceId}>
-        {selectableSources.map((src) => (
-          <option key={src.id} value={src.id}>
-            {src.name}
-          </option>
-        ))}
-      </SelectRow>
+      <SelectField
+        label="ช่องทาง"
+        options={sourceOptions}
+        value={sourceId}
+        onChange={(e) => setSourceId(e.target.value)}
+      />
 
-      <SelectRow label="ก้อนเงิน" value={potId} onChange={setPotId}>
-        <option value="">ไม่ระบุก้อน</option>
-        {pots.map((pot) => (
-          <option key={pot.id} value={pot.id}>
-            {pot.name}
-          </option>
-        ))}
-      </SelectRow>
+      <SelectField
+        label="ก้อนเงิน"
+        options={potOptions}
+        value={potId}
+        onChange={(e) => setPotId(e.target.value)}
+      />
 
-      <SelectRow label="หมวดหมู่" value={category} onChange={(v) => setCategory(v as Category)}>
-        {CATEGORY_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </SelectRow>
+      <SelectField
+        label="หมวดหมู่"
+        options={categoryOptions}
+        value={category}
+        onChange={(e) => setCategory(e.target.value as Category)}
+      />
 
       <TextField
         type="date"

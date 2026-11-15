@@ -12,7 +12,7 @@ export interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement
 }
 
 /**
- * Local select control matching TextField tokens (44px tap target, 16px text so iOS does not zoom,
+ * Shared select control matching TextField tokens (44px tap target, 16px text so iOS does not zoom,
  * and Thai validation errors linked via aria-describedby).
  */
 export function SelectField({
@@ -40,6 +40,7 @@ export function SelectField({
         aria-describedby={describedBy}
         className={[
           'h-11 w-full rounded-tile border bg-surface px-3 text-base text-text',
+          'focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2',
           'disabled:opacity-50',
           error ? 'border-negative' : 'border-control',
           className,

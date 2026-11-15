@@ -26,6 +26,7 @@ export interface SettingsRow {
   user_id: string;
   salary: string | number;
   pay_day: number;
+  budget_start_period: string | null;
 }
 
 export interface PaymentSourceRow {
@@ -89,7 +90,7 @@ export interface BillPaymentRow {
   paid_on: string;
 }
 
-const SETTINGS_COLUMNS = 'user_id, salary, pay_day';
+const SETTINGS_COLUMNS = 'user_id, salary, pay_day, budget_start_period';
 const SOURCE_COLUMNS =
   'id, name, kind, hue, archived, statement_close_day, due_day, due_month_offset, pay_from_source_id';
 const POT_COLUMNS = 'id, name, per_period, rollover, hue';
@@ -138,6 +139,8 @@ export function mapSettingsFromRow(row: SettingsRow): Settings {
     userId: row.user_id,
     salary: numericToSatang(row.salary),
     payDay: row.pay_day,
+    // Older rows/mocks may omit the column entirely; treat that as unset.
+    budgetStartPeriod: row.budget_start_period ?? null,
   };
 }
 
@@ -333,7 +336,7 @@ export async function loadFinanceData(client: SupabaseClient = getSupabaseClient
 
   const settings: Settings = settingsRes.data
     ? mapSettingsFromRow(settingsRes.data as SettingsRow)
-    : { userId: '', salary: 0, payDay: 10 };
+    : { userId: '', salary: 0, payDay: 10, budgetStartPeriod: null };
 
   return {
     settings,
@@ -356,6 +359,8 @@ export async function updateSettings(
     ...(userId ? { user_id: userId } : {}),
     salary: satangToNumeric(input.salary),
     pay_day: input.payDay,
+    // undefined = leave the column alone (upsert only updates keys present in the payload); null clears it.
+    ...(input.budgetStartPeriod !== undefined ? { budget_start_period: input.budgetStartPeriod } : {}),
   };
 
   const { data, error } = await client
@@ -587,4 +592,14 @@ export async function payBill(
   }
 
   throw wrapRepoError('บันทึกการจ่ายบิลไม่สำเร็จ', insertError);
+}
+
+export async function deleteBillPayment(
+  id: string,
+  client: SupabaseClient = getSupabaseClient(),
+): Promise<void> {
+  const { error } = await client.from('bill_payments').delete().eq('id', id);
+  if (error) {
+    throw wrapRepoError('ยกเลิกการจ่ายบิลไม่สำเร็จ', error);
+  }
 }

@@ -1,4 +1,4 @@
-export { AuthProvider, useAuth, type AuthProviderProps } from './AuthProvider';
+export { AuthProvider, useAuth, useOptionalAuth, type AuthProviderProps } from './AuthProvider';
 export { RequireAuth, type RequireAuthProps } from './RequireAuth';
 export { translateAuthError } from './errors';
 export type {

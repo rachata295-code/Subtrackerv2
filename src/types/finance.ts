@@ -15,6 +15,11 @@ export interface Settings {
   userId: string;
   salary: Satang;
   payDay: number;
+  /**
+   * First pay period the pot rollover chain counts from (carryIn = 0 there). Older periods still show
+   * their own figures but never carry forward. null = fall back to the first period with a transaction/payment.
+   */
+  budgetStartPeriod: PeriodKey | null;
 }
 
 export type SourceKind = 'bank' | 'credit_card' | 'paylater';
@@ -150,6 +155,7 @@ export interface UseFinanceData {
   data?: FinanceData;
   isLoading: boolean;
   error: Error | null;
+  refetch?: () => void;
 }
 
 export interface UseFinanceMutation<TInput, TResult = void> {
@@ -159,7 +165,9 @@ export interface UseFinanceMutation<TInput, TResult = void> {
   error: Error | null;
 }
 
-export type UpdateSettingsInput = Pick<Settings, 'salary' | 'payDay'>;
+// budgetStartPeriod is optional so callers that only edit salary/payDay leave the stored value untouched;
+// pass null explicitly to clear it.
+export type UpdateSettingsInput = Pick<Settings, 'salary' | 'payDay'> & Partial<Pick<Settings, 'budgetStartPeriod'>>;
 export type UpsertSourceInput = Omit<PaymentSource, 'id'> & { id?: string };
 export type UpsertPotInput = Omit<Pot, 'id'> & { id?: string };
 export type UpsertSubscriptionInput = Omit<Subscription, 'id'> & { id?: string };

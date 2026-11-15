@@ -1,8 +1,9 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { BottomSheet } from '../../components/ui/BottomSheet';
 import { Button } from '../../components/ui/Button';
 import { HoldToDelete } from '../../components/ui/HoldToDelete';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
+import { SelectField } from '../../components/ui/SelectField';
 import { TextField } from '../../components/ui/TextField';
 import type { Hue } from '../../components/ui/hue';
 import type { FinanceData, PaymentSource, SourceKind, UpsertSourceInput } from '../../types/finance';
@@ -39,9 +40,12 @@ function SourceForm({
   onDelete,
   isSubmitting,
 }: Omit<SourceSheetProps, 'open' | 'onOpenChange'>) {
-  const payFromSelectId = useId();
   const usedHues = data.sources.filter((s) => s.id !== editing?.id && !s.archived).map((s) => s.hue);
   const bankSources = data.sources.filter((s) => s.kind === 'bank' && !s.archived && s.id !== editing?.id);
+  const payFromOptions = useMemo(
+    () => [{ value: '', label: 'ไม่ระบุ' }, ...bankSources.map((b) => ({ value: b.id, label: b.name }))],
+    [bankSources],
+  );
 
   const [name, setName] = useState(editing?.name ?? '');
   const [kind, setKind] = useState<SourceKind>(editing?.kind ?? 'bank');
@@ -189,24 +193,12 @@ function SourceForm({
             onChange={setDueMonthOffset}
           />
 
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor={payFromSelectId} className="text-sm font-medium text-text">
-              จ่ายจากบัญชี
-            </label>
-            <select
-              id={payFromSelectId}
-              value={payFromSourceId}
-              onChange={(e) => setPayFromSourceId(e.target.value)}
-              className="h-11 w-full rounded-tile border border-control bg-surface px-3 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-            >
-              <option value="">ไม่ระบุ</option>
-              {bankSources.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <SelectField
+            label="จ่ายจากบัญชี"
+            options={payFromOptions}
+            value={payFromSourceId}
+            onChange={(e) => setPayFromSourceId(e.target.value)}
+          />
         </div>
       ) : null}
 

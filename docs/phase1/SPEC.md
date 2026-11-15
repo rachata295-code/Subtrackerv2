@@ -24,6 +24,7 @@ Base: branch `main` หลัง merge PR #1 (design system) — ห้ามเ
 - เงินเก็บเป็น **satang (integer)** ในโค้ด domain · ฐานข้อมูลเก็บ `numeric(12,2)` แล้วแปลงที่ data layer
 - วันที่: เขตเวลา **Asia/Bangkok** เสมอ · domain รับ `now` เป็นพารามิเตอร์ (test ได้ ไม่ขึ้นกับ TZ เครื่อง)
 - เงิน "ยกยอด" **คำนวณจากประวัติ** ไม่เก็บเป็นตัวเลขตาย (ป้องกันเลขเพี้ยนเมื่อแก้รายการย้อนหลัง)
+- **จุดเริ่มนับก้อนเงิน (`settings.budgetStartPeriod`):** เมื่อนำเข้าประวัติ v1 ย้อนหลังหลายเดือน ยอดเหลือ/ติดลบของรอบเก่าจะไหลมารวมในรอบปัจจุบันจนตัวเลขเพี้ยน จึงให้เจ้าของกำหนดรอบที่ "เริ่มนับ" ได้ (ตั้งค่า → เริ่มนับก้อนเงินตั้งแต่รอบ) · สคริปต์ย้ายข้อมูลตั้งเป็นรอบปัจจุบันให้เองถ้ายังว่าง · `null` = กฎเดิม (รอบแรกที่มีรายการ)
 - **กฎกันนับซ้ำ:** ค่า subscription ที่ตัดบัตรแสดงในปฏิทินเป็น "เข้าบิล" (ข้อมูล) แต่ **ยอดรวมเงินออกนับเฉพาะบิลบัตร** ไม่นับ charge ซ้ำ
 
 ---
@@ -38,7 +39,10 @@ type ISODate = string;           // 'YYYY-MM-DD' (Asia/Bangkok)
 type PeriodKey = string;         // 'YYYY-MM' = เดือนที่รอบ "เริ่ม" เช่น รอบ 10 พ.ย.–9 ธ.ค. = '2026-11'
 type Hue = 'sky'|'apricot'|'teal'|'stone'|'lilac'|'rose';
 
-interface Settings { userId: string; salary: Satang; payDay: number /*1-31, =10*/; }
+interface Settings {
+  userId: string; salary: Satang; payDay: number /*1-31, =10*/;
+  budgetStartPeriod: PeriodKey | null; // รอบที่ rollover เริ่มนับ (carryIn = 0) · null = รอบแรกที่มี transaction/bill_payment
+}
 
 type SourceKind = 'bank' | 'credit_card' | 'paylater';
 interface PaymentSource {
@@ -86,7 +90,7 @@ interface BillPayment {           // กด "จ่ายแล้ว"
 | `installmentSchedule(inst): {n; chargeDate; amount}[]` | `installment.ts` | n = 1..count ทุกเดือน วันเดิม |
 | `billAmount(src, statementKey, data): Satang` | `bills.ts` | Σ transactions(out) + subscription charges + installment charges ที่ตกในรอบบิลนั้น |
 | `upcomingOutflows(data, today, days=30): Outflow[]` | `bills.ts` | รายการบิล (นับในยอด) + charge ข้อมูล (`counted:false`) เรียงตามวัน · บิลที่จ่ายแล้วไม่แสดง · `Outflow = {date, dueBy:boolean, title, amount, sourceId, kind:'bill'|'charge', counted:boolean, statementKey?}` |
-| `potStatus(pot, periodKey, data): { carryIn; budget; reserved; spent; left; over:boolean }` | `pots.ts` | budget = perPeriod + carryIn · reserved = บิลที่ครบกำหนดในรอบนี้ซึ่ง charge ถูกนับใน pot นี้และยังไม่จ่าย · spent = รายจ่ายจดเองใน pot + บิลที่จ่ายแล้ว · left = budget − reserved − spent · carryIn = left ของรอบก่อน (ถ้า rollover; ติดลบก็ยกไป) · รอบแรกที่มีข้อมูล carryIn = 0 · **บิลอยู่ในรอบเงินเดือนไหน = `payPeriod(dueDate − 1 วัน)`** เพราะ due "ภายในวันที่ 10" ต้องจ่ายด้วยเงินเดือนก่อนหน้า (SPayLater due 10 ธ.ค. → รอบ '2026-11') |
+| `potStatus(pot, periodKey, data): { carryIn; budget; reserved; spent; left; over:boolean }` | `pots.ts` | budget = perPeriod + carryIn · reserved = บิลที่ครบกำหนดในรอบนี้ซึ่ง charge ถูกนับใน pot นี้และยังไม่จ่าย · spent = รายจ่ายจดเองใน pot + บิลที่จ่ายแล้ว · left = budget − reserved − spent · carryIn = left ของรอบก่อน (ถ้า rollover; ติดลบก็ยกไป) · **จุดเริ่มห่วงโซ่ยกยอด:** ถ้า `settings.budgetStartPeriod` ตั้งไว้ → เริ่มที่รอบนั้นด้วย carryIn = 0 · รอบก่อนหน้านั้นคืน carryIn = 0 และยังคำนวณ spent/reserved/left ของตัวเองเพื่อแสดงประวัติ แต่ **ไม่ยกยอดไปต่อ** · ถ้าเป็น `null` → ใช้กฎเดิม: รอบแรกที่มีข้อมูล (`transactions` หรือ `payments`) carryIn = 0 (ไม่ย้อนไปหา `installments.firstChargeDate` หรือ `subscriptions`) · **บิลอยู่ในรอบเงินเดือนไหน = `payPeriod(dueDate − 1 วัน)`** เพราะ due "ภายในวันที่ 10" ต้องจ่ายด้วยเงินเดือนก่อนหน้า (SPayLater due 10 ธ.ค. → รอบ '2026-11') |
 
 `data` = `FinanceData { settings; sources; pots; subscriptions; installments; transactions; payments }`
 
@@ -94,10 +98,10 @@ interface BillPayment {           // กด "จ่ายแล้ว"
 
 ## 5. Data layer (`src/data/*`, prompt 01)
 
-- `src/lib/supabase.ts` client จาก `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
-- `src/data/financeRepo.ts`: `loadFinanceData(): Promise<FinanceData>` + CRUD ต่อ entity (`createX`, `updateX`, `deleteX`) แปลง snake_case ↔ camelCase และ numeric ↔ Satang
-- `src/hooks/useFinance.ts` (TanStack Query): `useFinanceData()` → `{ data?: FinanceData; isLoading; error }` + mutation hooks `useCreateTransaction()`, `usePayBill()`, `useUpsertSource()` ฯลฯ — ทุก mutation invalidate `['finance']`
-- **Screens ใช้แค่ hooks เหล่านี้** · ระหว่างพัฒนาใช้ `src/fixtures/finance.ts` (prompt 00) ผ่าน `VITE_USE_FIXTURES=1`
+- `src/lib/supabase.ts` client จาก `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (มี `isSupabaseConfigured()` และ `AuthProvider` ผูก `seedDefaults` สำหรับ first login)
+- `src/data/financeRepo.ts`: `loadFinanceData(): Promise<FinanceData>` + CRUD ต่อ entity (`createX`, `updateX`, `deleteX`, รวมถึง `payBill` และ `deleteBillPayment` สำหรับ undo) แปลง snake_case ↔ camelCase และ numeric ↔ Satang
+- `src/hooks/useFinance.ts` (TanStack Query): `useFinanceData()` → `{ data?: FinanceData; isLoading; error; refetch?: () => void }` + mutation hooks `useCreateTransaction()`, `usePayBill()`, `useDeleteBillPayment()`, `useUpsertSource()` ฯลฯ — ทุก mutation invalidate `['finance']`
+- **Screens ใช้แค่ hooks เหล่านี้** · ระหว่างพัฒนาใช้ `src/fixtures/finance.ts` (prompt 00) ผ่าน `VITE_USE_FIXTURES=1` · UI field `SelectField` อยู่ที่ `src/components/ui/SelectField.tsx` (รวมเป็น component กลางหลังรวมงาน prompt 08)
 
 ## 6. หน้าจอ (ใช้ components เฟส 0 เท่านั้น)
 

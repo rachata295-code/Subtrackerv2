@@ -1,12 +1,17 @@
 # Subtrackerv2
 
-SubTracker v2 design system: a Thai personal-finance PWA, phone first, light and dark.
-Stack: Vite 5, React 18, TypeScript (strict), Tailwind 3, Vitest. Fonts (Anuphan, Manrope) are self-hosted.
+SubTracker v2 is a Thai personal-finance PWA, phone first, light and dark.
+Stack: Vite 5, React 18, TypeScript (strict), Tailwind 3, Vitest, TanStack Query, Supabase. Fonts (Anuphan, Manrope) are self-hosted.
 
-Two pages exist so far (HashRouter, so no server rewrites are needed):
+Routes use `HashRouter` so no server rewrites are needed:
 
-- `/#/design` the design system showcase (tokens, contrast ratios, every component)
-- `/#/preview-home` the home screen assembled from the design system, with sample data
+- `/#/` — ภาพรวม (Overview: play-pot remaining balance, statement bills & upcoming outflows, quick-add transaction)
+- `/#/bills` — บิล & ผ่อน (Bills & installments: unpaid statement bills, recurring subscriptions, active installments)
+- `/#/entries` — รายการ (Entries: period transaction log filtered by payment source, add/edit/delete)
+- `/#/settings` — ตั้งค่า (Settings: salary, payDay, budget start period, payment sources, budget pots, theme, sign out)
+- `/#/login` — เข้าสู่ระบบ (Email + password sign-in)
+- `/#/design` — Design system showcase (tokens, contrast ratios, every component)
+- `/#/preview-home` — Static home layout showcase with sample data
 
 ## Setup
 
@@ -26,9 +31,10 @@ npm run dev        # http://localhost:5173
 | `npm run preview` | Serve `dist/` at http://localhost:4173 (use this for the inspector and PWA checks) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` / `npm run test:run` | Vitest in watch mode / once |
+| `npm run test:tz` | Run Vitest in both `Asia/Bangkok` and `UTC` timezones |
 | `npm run check:motion` | Fails if `src/` (tests excluded) contains `transition: all`, `transition-all`, `ease-in` (not `ease-in-out`) or `scale(0)` |
 
-Before committing: `npm run test:run && npm run typecheck && npm run check:motion && npm run build`.
+Before committing: `npm run test:run && npm run test:tz && npm run typecheck && npm run check:motion && npm run build`.
 
 ## Supabase setup
 
@@ -60,7 +66,19 @@ VITE_BASE=/Subtrackerv2/ npm run build
 ```
 
 The manifest `start_url`/`scope`, the service worker, the icons and the asset URLs all follow this value.
-There is no deploy workflow in the repo yet.
+`.github/workflows/deploy.yml` runs `typecheck`, `test:run`, `test:tz`, and `check:motion`, then builds with `VITE_BASE=/Subtrackerv2/` and deploys `dist/` to GitHub Pages on pushes to `main`.
+
+## Phase 1 status & Phase 2 backlog
+
+**Phase 1 (Complete on `p1/08-integration`)**:
+- Supabase SQL schema + RLS (`supabase/schema.sql`, `supabase/seed.sql`), Auth guard + login + sign out (`src/auth/`).
+- Pure domain calculations matching `docs/phase1/SPEC.md §4` (`src/domain/*`), tested in `Asia/Bangkok` and `UTC`.
+- TanStack Query data hooks (`src/hooks/useFinance.ts`) + repository (`src/data/financeRepo.ts`) wired into all screens (`/`, `/bills`, `/entries`, `/settings`), with app-level `ErrorBoundary` and fixture mode (`VITE_USE_FIXTURES=1`).
+- Automated full-stack flow test (`src/e2e/specFlow.test.tsx`). Live Supabase E2E verification requires `.env.local` (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) and an Auth user.
+
+**Deferred to Phase 2**:
+- JSON backup export/import, multi-month trends/charts, statement/CSV auto-import, bill due-date reminders, multi-user shared pots.
+- Device-level iPhone PWA safe-area verification, VoiceOver double-tap polish for `HoldToDelete`, font subset trimming, and final app icon artwork replacing `public/icons/` placeholders.
 
 ## PWA notes
 
@@ -90,3 +108,23 @@ of the first screen is empty ground either side of it. The inspector reports tha
 It is not a FAIL today and nothing is silenced. If a newer inspector promotes the side-space or column rule to a
 FAIL, the accepted reason is that this empty ground is the intended phone-column layout, not a layout error; pass
 `--allow <rule>` for that one rule and nothing else.
+
+## Migration
+
+One-time import from SubTracker v1 CSV exports lives in [`scripts/migrate-v1/`](scripts/migrate-v1/README.md) (Node 22+, dry-run by default, `--apply` inserts via anon key + RLS using owner credentials from env).
+
+```sh
+# 1. Place the 4 CSV exports from Supabase v1 in scripts/migrate-v1/input/ (git-ignored)
+# 2. Preview row counts and before/after totals (dry-run):
+node scripts/migrate-v1/migrate.mjs --airpods-count 10 --airpods-first 2026-09-01
+
+# 3. Apply idempotently once verified (reads VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, MIGRATE_EMAIL, MIGRATE_PASSWORD):
+node scripts/migrate-v1/migrate.mjs --apply --airpods-count 10 --airpods-first 2026-09-01
+```
+
+Notes on what the import does to the budget figures:
+
+- v1 `budget_entries` split by `payment_type`: `cash` goes to the bank account + pot `ใช้จ่ายจำเป็น`, `card` goes to the credit card + pot `ใช้ตามใจ` (so everyday cash spending no longer drains the ฿3,000 discretionary pot). Both pots must exist (they come from `seed_defaults`).
+- `settings.budget_start_period` (rollover start, see SPEC §4) needs `supabase/migrations/2026-11-15-budget-start.sql` on existing databases. After `--apply` the script sets it to the current pay period (Asia/Bangkok) only if it is still empty; override the value with `--budget-start YYYY-MM`. An already-set value is never overwritten, and it can be changed later in Settings.
+
+See [scripts/migrate-v1/README.md](scripts/migrate-v1/README.md) for the full export guide, mapping rules, and idempotency details.

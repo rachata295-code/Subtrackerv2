@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
+import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { IconButton } from '../../components/ui/IconButton';
@@ -28,7 +29,7 @@ export interface BillsPageProps {
 }
 
 export default function BillsPage({ today = todayBangkok() }: BillsPageProps) {
-  const { data, isLoading, error } = useFinanceData();
+  const { data, isLoading, error, refetch } = useFinanceData();
   const [segment, setSegment] = useState<BillsSegment>('bills');
   const [instSheetOpen, setInstSheetOpen] = useState(false);
   const [editingInst, setEditingInst] = useState<Installment | undefined>(undefined);
@@ -56,7 +57,7 @@ export default function BillsPage({ today = todayBangkok() }: BillsPageProps) {
   };
 
   return (
-    <main className="px-screen pb-6 pt-5">
+    <>
       <header className="flex items-center justify-between gap-3">
         <h1 className="text-title font-semibold text-text">บิล & ผ่อน</h1>
         {data && segment === 'installments' ? (
@@ -94,8 +95,13 @@ export default function BillsPage({ today = todayBangkok() }: BillsPageProps) {
             <Skeleton className="h-11 w-2/3" />
           </Card>
         ) : error ? (
-          <Card>
-            <EmptyState message="โหลดข้อมูลบิลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง" />
+          <Card className="flex flex-col items-start gap-3" role="alert">
+            <p className="text-sm text-negative">โหลดข้อมูลบิลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง</p>
+            {refetch ? (
+              <Button variant="secondary" onClick={() => refetch()}>
+                ลองใหม่
+              </Button>
+            ) : null}
           </Card>
         ) : !data ? (
           <Card>
@@ -127,6 +133,6 @@ export default function BillsPage({ today = todayBangkok() }: BillsPageProps) {
           />
         </>
       ) : null}
-    </main>
+    </>
   );
 }

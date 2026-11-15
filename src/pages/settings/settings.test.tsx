@@ -96,7 +96,8 @@ function StatefulHarness({
   setStateHook = setState;
   return (
     <>
-      <SettingsPage onSignOut={onSignOut} />
+      {/* Fixed clock: the pay period picker lists periods relative to today (Asia/Bangkok). */}
+      <SettingsPage onSignOut={onSignOut} today="2026-11-20" />
       <AppToaster />
     </>
   );
@@ -123,7 +124,7 @@ beforeEach(() => {
   setPrefSpy.mockReset();
 
   updateSettingsSpy.mockReset().mockImplementation(async (input) => {
-    const updated: Settings = { userId: mockData.settings.userId, ...input };
+    const updated: Settings = { ...mockData.settings, ...input };
     setStateHook?.({ ...mockData, settings: updated });
     return updated;
   });
@@ -194,7 +195,63 @@ describe('<SettingsPage>', () => {
     expect(updateSettingsSpy).toHaveBeenCalledWith({
       salary: 1_550_000,
       payDay: 31,
+      budgetStartPeriod: null,
     });
+  });
+
+  it('offers ไม่กำหนด plus the current pay period and the 11 before it, labelled like the rest of the app', () => {
+    render(<StatefulHarness initial={makeFixtureClone()} />);
+
+    const select = screen.getByLabelText('เริ่มนับก้อนเงินตั้งแต่รอบ') as HTMLSelectElement;
+    const labels = Array.from(select.options).map((o) => o.textContent);
+    expect(labels).toHaveLength(13);
+    expect(labels[0]).toBe('ไม่กำหนด');
+    expect(labels[1]).toBe('10 พ.ย. – 9 ธ.ค. 2569 (รอบนี้)');
+    expect(labels[2]).toBe('10 ต.ค. – 9 พ.ย. 2569');
+    // 12th period back from 2026-11 is 2025-12, which crosses the new year.
+    expect(labels[12]).toBe('10 ธ.ค. – 9 ม.ค. 2569');
+    expect(select.options[1].value).toBe('2026-11');
+    expect(select.options[12].value).toBe('2025-12');
+    // Nothing stored yet -> "ไม่กำหนด" is selected.
+    expect(select.value).toBe('');
+  });
+
+  it('saves the chosen budget start period through the settings mutation, and clears it with ไม่กำหนด', async () => {
+    render(<StatefulHarness initial={makeFixtureClone()} />);
+
+    fireEvent.change(screen.getByLabelText('เริ่มนับก้อนเงินตั้งแต่รอบ'), { target: { value: '2026-11' } });
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }));
+
+    await waitFor(() => expect(updateSettingsSpy).toHaveBeenCalledTimes(1));
+    expect(updateSettingsSpy).toHaveBeenLastCalledWith({
+      salary: 1_020_000,
+      payDay: 10,
+      budgetStartPeriod: '2026-11',
+    });
+
+    // The form re-initialises from the saved value, so the select now shows it.
+    await waitFor(() =>
+      expect((screen.getByLabelText('เริ่มนับก้อนเงินตั้งแต่รอบ') as HTMLSelectElement).value).toBe('2026-11'),
+    );
+
+    fireEvent.change(screen.getByLabelText('เริ่มนับก้อนเงินตั้งแต่รอบ'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }));
+    await waitFor(() => expect(updateSettingsSpy).toHaveBeenCalledTimes(2));
+    expect(updateSettingsSpy).toHaveBeenLastCalledWith({
+      salary: 1_020_000,
+      payDay: 10,
+      budgetStartPeriod: null,
+    });
+  });
+
+  it('keeps a stored start period that is older than the 12-period window selectable', () => {
+    const data = makeFixtureClone();
+    data.settings.budgetStartPeriod = '2025-06';
+    render(<StatefulHarness initial={data} />);
+
+    const select = screen.getByLabelText('เริ่มนับก้อนเงินตั้งแต่รอบ') as HTMLSelectElement;
+    expect(select.value).toBe('2025-06');
+    expect(select.options[select.selectedIndex].textContent).toBe('10 มิ.ย. – 9 ก.ค. 2568');
   });
 
   it('hides billing cycle fields when payment source kind is bank and shows them for credit_card / paylater', async () => {

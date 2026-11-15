@@ -16,7 +16,13 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { Tile } from '../../components/ui/Tile';
 import { notify } from '../../components/ui/Toaster';
 import { billAmount, payPeriod, potStatus, statementFor, upcomingOutflows } from '../../domain';
-import { useCreateTransaction, useDeleteTransaction, useFinanceData, usePayBill } from '../../hooks/useFinance';
+import {
+  useCreateTransaction,
+  useDeleteBillPayment,
+  useDeleteTransaction,
+  useFinanceData,
+  usePayBill,
+} from '../../hooks/useFinance';
 import type { Segment } from '../../lib/allocation';
 import type {
   CreateTransactionInput,
@@ -30,7 +36,6 @@ import type {
   PotStatus,
   Satang,
   StatementWindow,
-  UseFinanceData,
 } from '../../types/finance';
 import {
   addDays,
@@ -212,10 +217,11 @@ interface OverviewPageProps {
 export default function OverviewPage({ today: todayProp }: OverviewPageProps = {}) {
   const today = todayProp ?? bangkokToday();
   const navigate = useNavigate();
-  const finance = useFinanceData() as UseFinanceData & { refetch?: () => void };
+  const finance = useFinanceData();
   const createTransaction = useCreateTransaction();
   const deleteTransaction = useDeleteTransaction();
   const payBill = usePayBill();
+  const deleteBillPayment = useDeleteBillPayment();
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [payingKeys, setPayingKeys] = useState<Set<string>>(() => new Set());
@@ -237,18 +243,18 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
 
   if (finance.isLoading) {
     return (
-      <main className="mx-auto w-full max-w-lg px-screen pb-6 pt-5">
+      <>
         <header className="flex items-start justify-between gap-3">
           <h1 className="text-title font-semibold text-text">ภาพรวม</h1>
         </header>
         <LoadingSkeleton />
-      </main>
+      </>
     );
   }
 
   if (finance.error) {
     return (
-      <main className="mx-auto w-full max-w-lg px-screen pb-6 pt-5">
+      <>
         <header className="flex items-start justify-between gap-3">
           <h1 className="text-title font-semibold text-text">ภาพรวม</h1>
         </header>
@@ -259,14 +265,14 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
             ลองใหม่
           </Button>
         </Card>
-      </main>
+      </>
     );
   }
 
   const data = finance.data;
   if (!data || data.pots.length === 0 || data.sources.length === 0) {
     return (
-      <main className="mx-auto w-full max-w-lg px-screen pb-6 pt-5">
+      <>
         <header className="flex items-start justify-between gap-3">
           <h1 className="text-title font-semibold text-text">ภาพรวม</h1>
         </header>
@@ -276,7 +282,7 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
             ไปตั้งค่า
           </Button>
         </Card>
-      </main>
+      </>
     );
   }
 
@@ -290,7 +296,7 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
 
   if (domainError || !derived) {
     return (
-      <main className="mx-auto w-full max-w-lg px-screen pb-6 pt-5">
+      <>
         <header className="flex items-start justify-between gap-3">
           <h1 className="text-title font-semibold text-text">ภาพรวม</h1>
         </header>
@@ -301,7 +307,7 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
             ลองใหม่
           </Button>
         </Card>
-      </main>
+      </>
     );
   }
 
@@ -355,6 +361,24 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
         amount: row.amount,
         paidOn: today,
       })
+      .then((payment) => {
+        let undone = false;
+        notify('บันทึกจ่ายบิลแล้ว', {
+          undo: () => {
+            if (undone) return;
+            undone = true;
+            payingKeysRef.current.delete(billKey);
+            setPayingKeys((prev) => {
+              const next = new Set(prev);
+              next.delete(billKey);
+              return next;
+            });
+            void deleteBillPayment.mutateAsync(payment.id).catch(() => {
+              notify('เลิกทำไม่สำเร็จ');
+            });
+          },
+        });
+      })
       .catch(() => {
         payingKeysRef.current.delete(billKey);
         setPayingKeys((prev) => {
@@ -379,7 +403,7 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
   };
 
   return (
-    <main className="mx-auto w-full max-w-lg px-screen pb-6 pt-5">
+    <>
       <header className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-title font-semibold text-text">ภาพรวม</h1>
@@ -567,6 +591,6 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
         defaultPotId={playPot.id}
         onSubmit={handleCreateTransaction}
       />
-    </main>
+    </>
   );
 }

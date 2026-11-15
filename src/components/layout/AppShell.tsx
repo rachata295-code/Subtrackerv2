@@ -12,7 +12,7 @@ export interface AppShellProps {
  */
 export function AppShell({ children }: AppShellProps) {
   return (
-    <div className="mx-auto flex h-dvh w-full max-w-[480px] flex-col bg-ground">
+    <div className="mx-auto flex h-dvh w-full max-w-phone flex-col bg-ground">
       <main className="flex-1 overflow-y-auto px-screen pb-6 pt-5">{children ?? <Outlet />}</main>
       <TabBar />
     </div>

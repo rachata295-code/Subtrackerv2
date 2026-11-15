@@ -9,7 +9,7 @@ import { ListRow } from '../../components/ui/ListRow';
 import { Money } from '../../components/ui/Money';
 import { notify } from '../../components/ui/Toaster';
 import { HUE_TILE } from '../../components/ui/hue';
-import { usePayBill } from '../../hooks/useFinance';
+import { useDeleteBillPayment, usePayBill } from '../../hooks/useFinance';
 import type { FinanceData, ISODate, PaymentSource } from '../../types/finance';
 import {
   formatCycleRange,
@@ -29,18 +29,15 @@ interface SourceBillCardProps {
 
 function SourceBillCard({ src, data, today }: SourceBillCardProps) {
   const payBill = usePayBill();
+  const deleteBillPayment = useDeleteBillPayment();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [paying, setPaying] = useState(false);
-  // Tracks bills paid during this session so fixture/stub dev mode updates immediately alongside query invalidation.
-  const [optimisticPaidKeys, setOptimisticPaidKeys] = useState<string[]>([]);
   // When "จ่ายแล้ว" unmounts after payment, focus moves to the status region without scrolling.
   const statusRef = useRef<HTMLDivElement>(null);
 
   const { current, previous } = getSourceBillCycles(src, today, 3);
   const currentAmount = billAmount(src, current.key, data);
-  const isPaid =
-    optimisticPaidKeys.includes(current.key) ||
-    data.payments.some((p) => p.sourceId === src.id && p.statementKey === current.key);
+  const isPaid = data.payments.some((p) => p.sourceId === src.id && p.statementKey === current.key);
   const charges = getCycleCharges(src, current, data);
   const dueParts = parseIsoDate(current.dueDate);
   const dueBy = src.kind === 'paylater';
@@ -50,15 +47,23 @@ function SourceBillCard({ src, data, today }: SourceBillCardProps) {
     if (paying || isPaid) return;
     setPaying(true);
     try {
-      await payBill.mutateAsync({
+      const payment = await payBill.mutateAsync({
         sourceId: src.id,
         statementKey: current.key,
         amount: currentAmount,
         paidOn: today,
       });
       statusRef.current?.focus({ preventScroll: true });
-      setOptimisticPaidKeys((prev) => (prev.includes(current.key) ? prev : [...prev, current.key]));
-      notify('บันทึกจ่ายบิลแล้ว');
+      let undone = false;
+      notify('บันทึกจ่ายบิลแล้ว', {
+        undo: () => {
+          if (undone) return;
+          undone = true;
+          void deleteBillPayment.mutateAsync(payment.id).catch(() => {
+            notify('เลิกทำไม่สำเร็จ');
+          });
+        },
+      });
     } catch {
       notify('บันทึกจ่ายบิลไม่สำเร็จ กรุณาลองใหม่');
     } finally {
@@ -157,9 +162,9 @@ function SourceBillCard({ src, data, today }: SourceBillCardProps) {
           <div data-testid={`bill-history-${src.id}`} className="mt-1 flex flex-col border-t border-rule pt-1">
             {previous.map((win) => {
               const amt = billAmount(src, win.key, data);
-              const prevPaid =
-                optimisticPaidKeys.includes(win.key) ||
-                data.payments.some((p) => p.sourceId === src.id && p.statementKey === win.key);
+              const prevPaid = data.payments.some(
+                (p) => p.sourceId === src.id && p.statementKey === win.key,
+              );
               const prevStatus = prevPaid ? 'จ่ายแล้ว' : amt > 0 ? 'ยังไม่จ่าย' : 'ไม่มียอด';
               return (
                 <div

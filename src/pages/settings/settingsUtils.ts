@@ -1,5 +1,9 @@
 import type { Hue } from '../../components/ui/hue';
-import type { FinanceData, PaymentSource, SourceKind } from '../../types/finance';
+import type { SelectOption } from '../../components/ui/SelectField';
+import { addMonths, formatPeriodKey, parseISODate, parsePeriodKey } from '../../domain/date';
+import { payPeriod, payPeriodForKey } from '../../domain/period';
+import { thaiMonthShort } from '../../lib/thaiDate';
+import type { FinanceData, ISODate, PaymentSource, PeriodKey, SourceKind } from '../../types/finance';
 
 export const HUES_ORDER: readonly Hue[] = ['sky', 'apricot', 'teal', 'stone', 'lilac', 'rose'];
 
@@ -84,4 +88,45 @@ export function formatSourceSummary(source: PaymentSource, allSources: PaymentSo
     if (payFrom) parts.push(`จ่ายจาก${payFrom.name}`);
   }
   return parts.join(' · ');
+}
+
+/** Select value meaning "no start period" (stored as null); an empty string keeps <select> controlled values simple. */
+export const BUDGET_START_NONE = '';
+
+/** How many pay periods the picker offers: the current one plus the 11 before it. */
+const BUDGET_START_PERIOD_COUNT = 12;
+
+/**
+ * Label like "10 พ.ย. – 9 ธ.ค. 2569". Matches the app's other Thai dates (day + short month, and the
+ * Buddhist-era year, as in entries/bills); the year is the period's end so a Dec→Jan period reads naturally.
+ */
+export function formatPayPeriodLabel(key: PeriodKey, payDay: number): string {
+  const { start, end } = payPeriodForKey(key, payDay);
+  const s = parseISODate(start);
+  const e = parseISODate(end);
+  return `${s.day} ${thaiMonthShort(s.month - 1)} – ${e.day} ${thaiMonthShort(e.month - 1)} ${e.year + 543}`;
+}
+
+/**
+ * Options for "เริ่มนับก้อนเงินตั้งแต่รอบ": "ไม่กำหนด", the current pay period (newest first) and the 11 before it.
+ * A stored value outside that window is appended so the select never silently shows a different period.
+ */
+export function budgetStartOptions(today: ISODate, payDay: number, current: PeriodKey | null): SelectOption[] {
+  const currentKey = payPeriod(today, payDay).key;
+  const { year, month } = parsePeriodKey(currentKey);
+
+  const keys: PeriodKey[] = [];
+  for (let i = 0; i < BUDGET_START_PERIOD_COUNT; i++) {
+    const ym = addMonths(year, month, -i);
+    keys.push(formatPeriodKey(ym.year, ym.month));
+  }
+  if (current !== null && !keys.includes(current)) keys.push(current);
+
+  return [
+    { value: BUDGET_START_NONE, label: 'ไม่กำหนด' },
+    ...keys.map((key) => ({
+      value: key,
+      label: key === currentKey ? `${formatPayPeriodLabel(key, payDay)} (รอบนี้)` : formatPayPeriodLabel(key, payDay),
+    })),
+  ];
 }
