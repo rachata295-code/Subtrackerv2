@@ -34,6 +34,8 @@ export default {
       apricot: hue('apricot'),
       teal: hue('teal'),
       stone: hue('stone'),
+      lilac: hue('lilac'),
+      rose: hue('rose'),
     },
     borderRadius: {
       none: '0',
@@ -41,6 +43,17 @@ export default {
       pill: 'var(--radius-pill)',
       tile: 'var(--radius-tile)',
       card: 'var(--radius-card)',
+    },
+    // Spec 5.4 allows only three weights; replacing the scale makes font-bold/black etc. unavailable.
+    fontWeight: {
+      normal: '400',
+      medium: '500',
+      semibold: '600',
+    },
+    // Spec 5.5: nothing resting has a shadow. Only floating layers (sheet, toast, menu) may use `float`.
+    boxShadow: {
+      none: 'none',
+      float: 'var(--shadow-float)',
     },
     extend: {
       fontFamily: {

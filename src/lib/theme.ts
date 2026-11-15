@@ -5,7 +5,8 @@ export type ResolvedTheme = 'light' | 'dark';
 export const THEME_STORAGE_KEY = 'subtracker-theme';
 
 // Hex mirror of --ground per theme. jsdom cannot read CSS variables and <meta name="theme-color">
-// needs a literal colour, so this is duplicated on purpose; a test guards it against tokens.css.
+// needs a literal colour, so this is duplicated on purpose; src/styles/tokens.contrast.test.ts
+// asserts both THEME_COLOR values equal tokens.css --ground and appear in index.html.
 export const THEME_COLOR: Record<ResolvedTheme, string> = {
   light: '#f3f5f7',
   dark: '#111214',
