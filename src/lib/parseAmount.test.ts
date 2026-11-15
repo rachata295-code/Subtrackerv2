@@ -6,6 +6,20 @@ describe('parseAmount', () => {
     expect(parseAmount('1,381.93')).toBe(1381.93);
   });
 
+  it('accepts commas only as thousands separators', () => {
+    expect(parseAmount('1,381.93')).toBe(1381.93);
+    expect(parseAmount('1381.93')).toBe(1381.93);
+    expect(parseAmount('1,234,567')).toBe(1234567);
+    // A comma anywhere else is more likely a decimal comma ("12,50" = 12.50 in many locales) than a thousand:
+    // reading it as 1250 would silently misstate money, so it is an error instead.
+    expect(parseAmount('12,50')).toBeNull();
+    expect(parseAmount('1,2,3')).toBeNull();
+    expect(parseAmount('1,23')).toBeNull();
+    expect(parseAmount('1234,567')).toBeNull();
+    expect(parseAmount(',500')).toBeNull();
+    expect(parseAmount('1,000,')).toBeNull();
+  });
+
   it('trims and strips baht sign and spaces', () => {
     expect(parseAmount(' ฿3,000 ')).toBe(3000);
     expect(parseAmount('1 000')).toBe(1000);

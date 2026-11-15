@@ -107,6 +107,9 @@ export function HoldToDelete({ onConfirm, label = 'กดค้างเพื�
         onPointerCancel={endHold}
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}
+        // Focus moving away (tab, app switch) means the keyup/pointerup may never arrive here, which would
+        // leave a destructive hold running and confirming in the background; treat it as a release.
+        onBlur={endHold}
         // Long-press on iOS opens a callout/context menu, which would cancel the hold.
         onContextMenu={(e) => e.preventDefault()}
         style={{ '--hold-ms': `${HOLD_MS}ms` } as CSSProperties}

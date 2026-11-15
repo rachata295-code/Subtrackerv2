@@ -153,6 +153,35 @@ describe('<HoldToDelete>', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  it('cancels a pointer hold on blur, like a release', () => {
+    const onConfirm = vi.fn();
+    render(<HoldToDelete onConfirm={onConfirm} />);
+    fireEvent.pointerDown(button());
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    fireEvent.blur(button());
+    expect(screen.getByTestId('hold-fill').getAttribute('data-holding')).toBe('false');
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it('cancels a keyboard hold on blur, like a release', () => {
+    const onConfirm = vi.fn();
+    render(<HoldToDelete onConfirm={onConfirm} />);
+    fireEvent.keyDown(button(), { key: 'Enter' });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    fireEvent.blur(button());
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
   it('can be held again after a release', () => {
     const onConfirm = vi.fn();
     render(<HoldToDelete onConfirm={onConfirm} />);
