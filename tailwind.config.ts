@@ -32,6 +32,7 @@ export default {
       positive: v('positive'),
       negative: v('negative'),
       warning: v('warning'),
+      scrim: v('scrim'),
       sky: hue('sky'),
       apricot: hue('apricot'),
       teal: hue('teal'),

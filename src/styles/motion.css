@@ -74,3 +74,89 @@
     animation: none;
   }
 }
+
+/*
+ * HoldToDelete fill. clip-path (not width) so the wipe never triggers layout. Pressing fills linearly over
+ * --hold-ms so progress maps 1:1 to elapsed time; releasing snaps back in 200ms with ease-out.
+ */
+.hold-fill {
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 200ms var(--ease-out);
+  pointer-events: none;
+}
+
+.hold-fill[data-holding='true'] {
+  clip-path: inset(0);
+  transition: clip-path var(--hold-ms, 1200ms) linear;
+}
+
+/* Reduced motion: no wipe; the same fill fades in over the same duration so progress is still visible. */
+@media (prefers-reduced-motion: reduce) {
+  .hold-fill {
+    clip-path: inset(0);
+    opacity: 0;
+    transition: opacity 200ms var(--ease-out);
+  }
+  .hold-fill[data-holding='true'] {
+    opacity: 1;
+    transition: opacity var(--hold-ms, 1200ms) linear;
+  }
+}
+
+/*
+ * BottomSheet timing. Vaul drives open/close with CSS keyframes whose duration is hard-coded to 0.5s, with no
+ * prop to change it, so we override it here via Vaul's own data attributes. The selectors are one attribute more
+ * specific than Vaul's injected rule, so they win regardless of stylesheet order. Only the animation-* properties
+ * are overridden (not transition): Vaul sets inline transitions while dragging and an !important here would
+ * make the sheet lag the finger. Exit (240ms) is faster than enter (--dur-sheet) because leaving should
+ * never make the user wait.
+ */
+[data-vaul-drawer][data-state='open'] {
+  animation-duration: var(--dur-sheet);
+  animation-timing-function: var(--ease-drawer);
+}
+
+[data-vaul-drawer][data-state='closed'] {
+  animation-duration: 240ms;
+  animation-timing-function: var(--ease-drawer);
+}
+
+[data-vaul-overlay][data-state='open'] {
+  animation-duration: var(--dur-sheet);
+}
+
+[data-vaul-overlay][data-state='closed'] {
+  animation-duration: 240ms;
+}
+
+/* Reduced motion: the sheet fades instead of sliding (Vaul's keyframes only animate transform). */
+@keyframes sheet-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-vaul-drawer][data-state='open'] {
+    animation-name: sheet-fade-in !important;
+    animation-duration: var(--dur-fast);
+    animation-timing-function: var(--ease-out);
+  }
+  [data-vaul-drawer][data-state='closed'] {
+    animation-name: sheet-fade-out !important;
+    animation-duration: var(--dur-press);
+    animation-timing-function: var(--ease-out);
+  }
+}

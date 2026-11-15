@@ -58,6 +58,9 @@
   /* TabBar content height (8px top padding + 44px row), excluding the safe-area inset. The toaster offsets by it. */
   --tabbar-h: 52px;
 
+  /* Scrim behind sheets: black in both themes (a text-colour scrim would turn white in dark). */
+  --scrim: 0 0 0;
+
   /* Shadow (spec 5.5): the only one, for sheet/toast/menu. Nothing resting gets a shadow. */
   --shadow-float: 0 8px 24px rgb(0 0 0 / 0.16);
 
@@ -106,6 +109,8 @@
   --rose-bg: 61 15 29; /* #3d0f1d */
   --rose-ink: 247 184 203; /* #f7b8cb */
   --rose-mark: 222 81 124; /* #de517c */
+
+  --scrim: 0 0 0;
 
   /* Stronger in dark: a soft shadow vanishes against a near-black ground. */
   --shadow-float: 0 8px 24px rgb(0 0 0 / 0.5);
