@@ -9,13 +9,14 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
 }
 
-// Hover is gated by hover-fine so touch devices never get a stuck hover state.
+// Hover is gated by hover-fine (no stuck hover on touch) and :enabled (hover utilities sort after
+// disabled:opacity-50 at equal specificity, so without it a disabled or loading button would brighten on hover).
 const VARIANT_CLASS: Record<ButtonVariant, string> = {
-  primary: 'bg-accent text-on-accent hover-fine:hover:opacity-90',
-  secondary: 'bg-stone-bg text-stone-ink hover-fine:hover:opacity-80',
-  ghost: 'bg-transparent text-accent hover-fine:hover:bg-stone-bg',
+  primary: 'bg-accent text-on-accent hover-fine:enabled:hover:opacity-90',
+  secondary: 'bg-stone-bg text-stone-ink hover-fine:enabled:hover:opacity-80',
+  ghost: 'bg-transparent text-accent hover-fine:enabled:hover:bg-stone-bg',
   // negative is reserved for destructive/over-budget actions (spec 5.4).
-  danger: 'bg-negative text-on-accent hover-fine:hover:opacity-90',
+  danger: 'bg-negative text-on-accent hover-fine:enabled:hover:opacity-90',
 };
 
 // Both heights meet the 44px tap target.

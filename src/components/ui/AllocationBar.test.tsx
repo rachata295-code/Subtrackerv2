@@ -36,4 +36,25 @@ describe('<AllocationBar>', () => {
     expect(second.className).toContain('transition-transform');
     expect(second.style.transform).toBe('translateX(50%) scaleX(0.25)');
   });
+
+  // Mockup: 2px gaps between segments. Gaps are separate transform-positioned strips, so they
+  // animate with the segments and never touch layout.
+  it('separates adjacent segments with a gap strip on each boundary, none after the last', () => {
+    const { container } = render(<AllocationBar total={2000} parts={parts} />);
+    // a | b | remaining -> gaps after a and after b only
+    const gaps = Array.from(container.querySelectorAll<HTMLElement>('[data-gap]'));
+    expect(gaps.map((g) => g.dataset.gap)).toEqual(['a', 'b']);
+    expect(gaps[0].style.transform).toBe('translateX(50%)');
+    expect(gaps[1].style.transform).toBe('translateX(75%)');
+    for (const g of gaps) {
+      expect(g.className).toContain('transition-transform');
+      expect((g.firstElementChild as HTMLElement).className).toContain('w-0.5');
+      expect((g.firstElementChild as HTMLElement).className).toContain('bg-surface');
+    }
+  });
+
+  it('has no gap after the final segment when over budget', () => {
+    const { container } = render(<AllocationBar total={1000} parts={parts} />);
+    expect(Array.from(container.querySelectorAll<HTMLElement>('[data-gap]')).map((g) => g.dataset.gap)).toEqual(['a']);
+  });
 });

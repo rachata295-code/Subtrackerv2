@@ -15,7 +15,7 @@ export function Tile({ hue, label, value, onClick }: TileProps) {
     <>
       <span className="block text-sm font-medium">{label}</span>
       <span className="mt-1 block">
-        <Money value={value} size="md" />
+        <Money value={value} size="md" tone="inherit" />
       </span>
     </>
   );

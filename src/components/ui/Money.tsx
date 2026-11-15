@@ -8,6 +8,8 @@ interface MoneyProps {
   value: number | null;
   size?: MoneySize;
   kind?: MoneyKind;
+  /** `inherit` adds no colour class so the amount takes the surrounding ink (Tile). Default `auto` applies the colour rules. */
+  tone?: 'auto' | 'inherit';
 }
 
 // Sizes come from tailwind.config.ts fontSize tokens (spec 5.4: money-xl 36, money 17, small 14).
@@ -26,20 +28,20 @@ function colourClass(value: number, kind: MoneyKind, isZero: boolean): string {
   return 'text-text';
 }
 
-export function Money({ value, size = 'md', kind = 'neutral' }: MoneyProps) {
+export function Money({ value, size = 'md', kind = 'neutral', tone = 'auto' }: MoneyProps) {
   const base = `tabular-nums ${SIZE_CLASS[size]}`;
 
   if (value === null || !Number.isFinite(value)) {
-    return <span className={`${base} text-muted`}>—</span>;
+    return <span className={tone === 'inherit' ? base : `${base} text-muted`}>—</span>;
   }
 
   const { sign, baht, satang } = splitTHB(value, { showPlus: kind === 'income' });
   // Judge zero on the formatted parts so 0.001 (shown as ฿0.00) fades like a true zero.
   const isZero = baht === '฿0' && satang === '.00';
-  const colour = colourClass(value, kind, isZero);
+  const colour = tone === 'inherit' ? '' : colourClass(value, kind, isZero);
 
   return (
-    <span className={`${base} ${colour}`}>
+    <span className={`${base} ${colour}`.trim()}>
       {sign}
       {baht}
       {/* Big numbers shrink the satang so the baht carries the weight (spec 5.4). */}

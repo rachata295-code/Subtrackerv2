@@ -67,21 +67,36 @@ describe('<Button>', () => {
     expect(screen.getByRole('button', { name: 'c' }).className).toContain('bg-negative');
   });
 
-  it('only styles hover behind the hover-fine variant', () => {
-    render(<Button variant="primary">a</Button>);
-    const hoverClasses = screen
-      .getByRole('button')
-      .className.split(/\s+/)
-      .filter((c) => c.includes('hover:'));
-    expect(hoverClasses.length).toBeGreaterThan(0);
-    for (const c of hoverClasses) expect(c.startsWith('hover-fine:hover:')).toBe(true);
-  });
+  // Hover utilities are emitted after disabled:opacity-50 at equal specificity, so an ungated hover
+  // would lift a disabled button back to full opacity. `enabled:` keeps disabled/loading inert.
+  it.each(['primary', 'secondary', 'ghost', 'danger'] as const)(
+    '%s: hover is gated by hover-fine and :enabled',
+    (variant) => {
+      render(<Button variant={variant}>a</Button>);
+      const hoverClasses = screen
+        .getByRole('button')
+        .className.split(/\s+/)
+        .filter((c) => c.includes('hover:'));
+      expect(hoverClasses.length).toBeGreaterThan(0);
+      for (const c of hoverClasses) expect(c.startsWith('hover-fine:enabled:hover:')).toBe(true);
+    },
+  );
 });
 
 describe('<IconButton>', () => {
   it('exposes its label as the accessible name', () => {
     render(<IconButton label="เพิ่มรายการ" icon={<svg aria-hidden="true" />} />);
     expect(screen.getByRole('button', { name: 'เพิ่มรายการ' })).toBeTruthy();
+  });
+
+  it('gates hover by hover-fine and :enabled', () => {
+    render(<IconButton label="เพิ่มรายการ" icon={<svg aria-hidden="true" />} />);
+    const hoverClasses = screen
+      .getByRole('button')
+      .className.split(/\s+/)
+      .filter((c) => c.includes('hover:'));
+    expect(hoverClasses.length).toBeGreaterThan(0);
+    for (const c of hoverClasses) expect(c.startsWith('hover-fine:enabled:hover:')).toBe(true);
   });
 
   it('has a 44px tap target', () => {
@@ -122,6 +137,14 @@ describe('<Tile>', () => {
     const cls = (container.firstElementChild as HTMLElement).className;
     expect(cls).toContain('bg-sky-bg');
     expect(cls).toContain('text-sky-ink');
+  });
+
+  // The amount must read in the hue's ink: Money is told to inherit instead of forcing its own colour.
+  it('lets the amount inherit the hue ink', () => {
+    render(<Tile hue="sky" label="ค่าใช้จ่าย" value={1200} />);
+    const amount = screen.getByText('฿1,200');
+    expect(amount.className).not.toMatch(/text-(text|muted|positive|negative)/);
+    expect(amount.closest('.text-sky-ink')).not.toBeNull();
   });
 
   it('renders the label and the formatted amount', () => {

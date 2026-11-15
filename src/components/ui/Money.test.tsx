@@ -84,4 +84,16 @@ describe('<Money>', () => {
     expect(kinds).toHaveLength(3);
     expect(sizes).toHaveLength(3);
   });
+
+  it("tone='inherit' adds no colour class, even for zero, null and negative", () => {
+    for (const value of [1200, 0, null, -5]) {
+      const el = root(<Money value={value} tone="inherit" />);
+      expect(el.className).not.toMatch(/text-(text|muted|positive|negative)/);
+      cleanup();
+    }
+  });
+
+  it("tone='auto' (default) keeps the colour rules", () => {
+    expect(root(<Money value={1200} />).className).toContain('text-text');
+  });
 });

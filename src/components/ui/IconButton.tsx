@@ -12,7 +12,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
 ) {
   const classes = [
     'pressable inline-flex h-11 w-11 items-center justify-center rounded-tile text-text',
-    'hover-fine:hover:bg-stone-bg disabled:opacity-50',
+    'hover-fine:enabled:hover:bg-stone-bg disabled:opacity-50',
     'focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2',
     className,
   ]
