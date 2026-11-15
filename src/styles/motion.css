@@ -160,3 +160,100 @@
     animation-timing-function: var(--ease-out);
   }
 }
+
+/*
+ * AnimatedMoney: old and new amounts crossfade over --dur-base, with a 2px blur peaking at the midpoint so the
+ * swap reads as one figure changing rather than two numbers overlapping. filter is allowed here (spec 6) and
+ * only runs for these two short-lived layers. `both` keeps the end state so there is no flash before removal.
+ */
+@keyframes money-out {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  50% {
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 0;
+    filter: blur(2px);
+  }
+}
+
+@keyframes money-in {
+  0% {
+    opacity: 0;
+    filter: blur(2px);
+  }
+  50% {
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+.money-out {
+  animation: money-out var(--dur-base) var(--ease-out) both;
+}
+
+.money-in {
+  animation: money-in var(--dur-base) var(--ease-out) both;
+}
+
+/* Reduced motion: opacity only, no blur. */
+@keyframes money-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes money-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .money-out {
+    animation-name: money-fade-out;
+  }
+  .money-in {
+    animation-name: money-fade-in;
+  }
+}
+
+/*
+ * Paid-in-full check (the one celebration, spec 6): the stroke draws in via stroke-dashoffset. The path uses
+ * pathLength="1" so dasharray/offset are in 0..1 units whatever its drawn size. 300ms keeps the whole
+ * celebration (draw + the row leaving) inside 500ms.
+ */
+@keyframes check-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.check-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: check-draw 300ms var(--ease-out) forwards;
+}
+
+/* Reduced motion: the check is simply there; nothing draws. */
+@media (prefers-reduced-motion: reduce) {
+  .check-draw {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
