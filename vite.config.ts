@@ -17,9 +17,20 @@ export default defineConfig({
       // autoUpdate: a new deploy replaces the cached shell on next load without a prompt (no update UI to design yet).
       registerType: 'autoUpdate',
       workbox: {
-        // woff2 is listed on purpose: without it the self-hosted Anuphan/Manrope files are not precached and Thai
-        // text falls back to a system font when the app is opened offline.
-        globPatterns: ['**/*.{js,css,html,woff2,svg,png}'],
+        // Precache only the app shell and the 9 required font subsets (Anuphan thai+latin, Manrope latin);
+        // globIgnores blocks unused font subsets and .woff fallbacks from entering the offline cache.
+        globPatterns: [
+          '**/*.{js,css,html,svg,png}',
+          'assets/anuphan-{thai,latin}-{400,500,600}-*.woff2',
+          'assets/manrope-latin-{400,500,600}-*.woff2',
+        ],
+        globIgnores: [
+          '**/node_modules/**/*',
+          'sw.js',
+          'workbox-*.js',
+          '**/*.woff',
+          '**/*-{cyrillic,cyrillic-ext,greek,latin-ext,vietnamese}-*.woff2',
+        ],
       },
       manifest: {
         name: 'SubTracker',

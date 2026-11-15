@@ -83,8 +83,11 @@ The manifest `start_url`/`scope`, the service worker, the icons and the asset UR
 ## PWA notes
 
 - `vite-plugin-pwa` with `registerType: 'autoUpdate'`: a new deploy replaces the cached app on the next load.
-- Workbox precaches `**/*.{js,css,html,woff2,svg,png}`. `woff2` is included on purpose so Thai text keeps
-  rendering in Anuphan when the app is opened offline. Check with `grep -o '[a-z-]*thai[^"]*woff2' dist/sw.js`.
+- Workbox precaches the app shell (`**/*.{js,css,html,svg,png}`) plus only the 9 self-hosted `woff2` subsets
+  declared in `src/styles/fonts.css` (`anuphan-{thai,latin}-{400,500,600}` and `manrope-latin-{400,500,600}`),
+  explicitly ignoring unused subsets (`cyrillic`, `greek`, `vietnamese`, `latin-ext`) and `.woff` fallbacks.
+  This keeps Thai rendering in Anuphan and Latin/numbers in Manrope offline without bloating the precache.
+  Check with `grep -o 'assets/[^"]*\.woff2' dist/sw.js` (expects 9 files).
 - Service workers only run on the production build (`npm run preview`), not on `npm run dev`.
 - `index.html` carries the iOS standalone tags (`apple-mobile-web-app-capable`, `viewport-fit=cover`,
   `apple-touch-icon`) so "Add to Home Screen" opens an app window and the safe-area insets work.
