@@ -64,6 +64,11 @@ export default {
         card: 'var(--pad-card)',
         screen: 'var(--pad-screen)',
       },
+      // Spec 5.4 type scale for money; body/small reuse Tailwind's 16/14px defaults.
+      fontSize: {
+        'money-xl': ['36px', { lineHeight: '40px' }],
+        money: ['17px', { lineHeight: '24px' }],
+      },
       minHeight: { tap: 'var(--tap-min)' },
       minWidth: { tap: 'var(--tap-min)' },
       transitionTimingFunction: {
