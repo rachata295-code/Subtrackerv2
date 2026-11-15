@@ -1,19 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { isFixturesMode, isSupabaseConfigured, supabase } from '../lib/supabase';
 import type { AuthClient, AuthContextValue, AuthSession, AuthStatus, AuthUser, SeedDefaultsFn } from './types';
-
-interface SupabaseModule {
-  supabase?: { auth?: AuthClient };
-  seedDefaults?: SeedDefaultsFn;
-}
-
-// Optional eager glob so this compiles before prompt 01 adds src/lib/supabase.ts and picks it up automatically once merged.
-const supabaseModules = import.meta.glob<SupabaseModule>('../lib/supabase.ts', { eager: true });
-
-function resolveDefaultModule(): SupabaseModule | undefined {
-  return Object.values(supabaseModules)[0];
-}
-
-const useFixtures = () => import.meta.env.VITE_USE_FIXTURES === '1';
 
 const FIXTURE_USER: AuthUser = {
   id: 'fixture-user',
@@ -36,10 +23,10 @@ export interface AuthProviderProps {
 }
 
 export function AuthProvider({ children, client, seedDefaults }: AuthProviderProps) {
-  const fixtures = useFixtures();
-  const defaultMod = resolveDefaultModule();
-  const authClient = client ?? defaultMod?.supabase?.auth;
-  const seedCallback = seedDefaults ?? defaultMod?.seedDefaults;
+  const fixtures = isFixturesMode();
+  // Avoid reading supabase.auth through the lazy Proxy when Supabase env vars are unconfigured.
+  const authClient = client ?? (!fixtures && isSupabaseConfigured() ? (supabase.auth as unknown as AuthClient) : undefined);
+  const seedCallback = seedDefaults;
 
   const [session, setSession] = useState<AuthSession | null>(() => (fixtures ? FIXTURE_SESSION : null));
   const [status, setStatus] = useState<AuthStatus>(() => {
@@ -170,6 +157,10 @@ export function AuthProvider({ children, client, seedDefaults }: AuthProviderPro
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useOptionalAuth(): AuthContextValue | null {
+  return useContext(AuthContext);
 }
 
 export function useAuth(): AuthContextValue {

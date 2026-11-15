@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { TextField } from './TextField';
 import { CurrencyField } from './CurrencyField';
+import { SelectField } from './SelectField';
 import { Switch } from './Switch';
 
 afterEach(cleanup);
@@ -124,5 +125,28 @@ describe('<Switch>', () => {
   it('moves the thumb with transform only', () => {
     render(<Switch label="แจ้งเตือน" checked onChange={() => {}} />);
     expect(screen.getByTestId('switch-thumb').style.transform).toBe('translateX(20px)');
+  });
+});
+
+describe('<SelectField>', () => {
+  it('renders label, options, and links error via aria-describedby', () => {
+    render(
+      <SelectField
+        label="ช่องทาง"
+        options={[
+          { value: 'bank', label: 'บัญชี' },
+          { value: 'card', label: 'บัตรเครดิต' },
+        ]}
+        value="bank"
+        onChange={() => {}}
+        error="กรุณาเลือกช่องทาง"
+      />,
+    );
+    const select = screen.getByLabelText('ช่องทาง') as HTMLSelectElement;
+    expect(select.value).toBe('bank');
+    expect(select.getAttribute('aria-invalid')).toBe('true');
+    const describedBy = select.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)!.textContent).toContain('กรุณาเลือกช่องทาง');
   });
 });

@@ -8,7 +8,7 @@ import { TextField } from '../../components/ui/TextField';
 import { notify } from '../../components/ui/Toaster';
 import { useDeleteSubscription, useUpsertSubscription } from '../../hooks/useFinance';
 import type { FinanceData, Subscription } from '../../types/finance';
-import { SelectField } from './SelectField';
+import { SelectField } from '../../components/ui/SelectField';
 import { THAI_MONTHS_FULL, bahtToSatang, resolvePlayPot, satangToBaht } from './billsLogic';
 
 export interface SubscriptionSheetProps {

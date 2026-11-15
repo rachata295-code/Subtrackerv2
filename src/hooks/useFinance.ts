@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 import {
   createTransaction,
+  deleteBillPayment,
   deleteInstallment,
   deletePot,
   deleteSource,
@@ -114,11 +115,16 @@ export function useFinanceData(): UseFinanceData {
     queryClient,
   );
 
+  const refetch = () => {
+    void query.refetch();
+  };
+
   if (fixtures) {
     return {
       data: query.data ?? financeFixture,
       isLoading: false,
       error: null,
+      refetch,
     };
   }
 
@@ -127,6 +133,7 @@ export function useFinanceData(): UseFinanceData {
       data: undefined,
       isLoading: false,
       error: configError,
+      refetch,
     };
   }
 
@@ -134,6 +141,7 @@ export function useFinanceData(): UseFinanceData {
     data: query.data,
     isLoading: query.isLoading,
     error: query.error,
+    refetch,
   };
 }
 
@@ -288,5 +296,15 @@ export function usePayBill(): UseFinanceMutation<PayBillInput, BillPayment> {
         result: payment,
       };
     },
+  );
+}
+
+export function useDeleteBillPayment(): UseFinanceMutation<string> {
+  return useFinanceMutation(
+    (id) => deleteBillPayment(id),
+    (current, id) => ({
+      data: { ...current, payments: current.payments.filter((p) => p.id !== id) },
+      result: undefined,
+    }),
   );
 }

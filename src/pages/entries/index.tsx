@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { AnimatedRow } from '../../components/ui/AnimatedRow';
+import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { IconButton } from '../../components/ui/IconButton';
@@ -35,7 +36,7 @@ export interface EntriesPageProps {
 
 export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
   const today = todayProp ?? todayBangkok();
-  const { data, isLoading, error } = useFinanceData();
+  const { data, isLoading, error, refetch } = useFinanceData();
   const createTx = useCreateTransaction();
   const updateTx = useUpdateTransaction();
   const deleteTx = useDeleteTransaction();
@@ -131,7 +132,7 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
   };
 
   return (
-    <main className="mx-auto w-full max-w-[480px] px-screen pb-8 pt-5">
+    <>
       <header className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-title font-semibold text-text">รายการ</h1>
@@ -158,8 +159,13 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
           <Skeleton className="h-24 w-full" />
         </div>
       ) : error ? (
-        <Card className="mt-4">
+        <Card className="mt-4 flex flex-col items-start gap-3" role="alert">
           <p className="text-sm text-negative">โหลดรายการไม่สำเร็จ: {error.message}</p>
+          {refetch ? (
+            <Button variant="secondary" onClick={() => refetch()}>
+              ลองใหม่
+            </Button>
+          ) : null}
         </Card>
       ) : data ? (
         <>
@@ -233,6 +239,6 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
           />
         </>
       ) : null}
-    </main>
+    </>
   );
 }

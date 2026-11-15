@@ -150,6 +150,7 @@ export interface UseFinanceData {
   data?: FinanceData;
   isLoading: boolean;
   error: Error | null;
+  refetch?: () => void;
 }
 
 export interface UseFinanceMutation<TInput, TResult = void> {

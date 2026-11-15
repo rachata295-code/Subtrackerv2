@@ -588,3 +588,13 @@ export async function payBill(
 
   throw wrapRepoError('บันทึกการจ่ายบิลไม่สำเร็จ', insertError);
 }
+
+export async function deleteBillPayment(
+  id: string,
+  client: SupabaseClient = getSupabaseClient(),
+): Promise<void> {
+  const { error } = await client.from('bill_payments').delete().eq('id', id);
+  if (error) {
+    throw wrapRepoError('ยกเลิกการจ่ายบิลไม่สำเร็จ', error);
+  }
+}

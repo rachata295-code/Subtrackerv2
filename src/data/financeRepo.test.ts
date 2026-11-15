@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   createTransaction,
+  deleteBillPayment,
   deleteInstallment,
   deletePot,
   deleteSource,
@@ -536,5 +537,17 @@ describe('financeRepo with mocked Supabase client', () => {
     );
 
     expect(payment.id).toBe('pay-race');
+  });
+
+  it('deleteBillPayment deletes a bill payment by id', async () => {
+    const builder = makeQueryBuilder({ data: null, error: null });
+    const client = {
+      from: vi.fn(() => builder),
+    } as unknown as SupabaseClient;
+
+    await deleteBillPayment('pay-1', client);
+    expect(client.from).toHaveBeenCalledWith('bill_payments');
+    expect(builder.delete).toHaveBeenCalledTimes(1);
+    expect(builder.eq).toHaveBeenCalledWith('id', 'pay-1');
   });
 });

@@ -15,7 +15,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
   if (status === 'loading') {
     return (
       <div
-        className="mx-auto flex h-dvh w-full max-w-[480px] flex-col space-y-3 bg-ground px-screen pt-5"
+        className="mx-auto flex h-dvh w-full max-w-phone flex-col space-y-3 bg-ground px-screen pt-5"
         role="status"
         aria-label="กำลังโหลด"
       >

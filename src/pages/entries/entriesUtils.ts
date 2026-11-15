@@ -1,4 +1,5 @@
-import { payPeriod as domainPayPeriod } from '../../domain';
+import { payPeriod } from '../../domain';
+import { addDays, parseISODate } from '../../domain/date';
 import { thaiMonthShort } from '../../lib/thaiDate';
 import type { MoneyKind } from '../../components/ui/Money';
 import type { Category, ISODate, PayPeriod, Transaction } from '../../types/finance';
@@ -42,64 +43,6 @@ export function isValidISODate(value: string): value is ISODate {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
 
-function parseISO(iso: ISODate): { year: number; month: number; day: number } {
-  const [year, month, day] = iso.split('-').map(Number);
-  return { year, month, day };
-}
-
-function formatISO(year: number, month: number, day: number): ISODate {
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-}
-
-function daysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate();
-}
-
-function addDaysISO(iso: ISODate, deltaDays: number): ISODate {
-  const { year, month, day } = parseISO(iso);
-  const dt = new Date(Date.UTC(year, month - 1, day + deltaDays));
-  return formatISO(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
-}
-
-function effectivePayDay(year: number, month: number, payDay: number): number {
-  const clamped = Math.max(1, Math.min(31, Math.trunc(payDay)));
-  return Math.min(clamped, daysInMonth(year, month));
-}
-
-function computePayPeriod(date: ISODate, payDay: number): PayPeriod {
-  const { year, month, day } = parseISO(date);
-  const currentStartDay = effectivePayDay(year, month, payDay);
-  const inCurrentMonth = day >= currentStartDay;
-  const startYear = inCurrentMonth ? year : month === 1 ? year - 1 : year;
-  const startMonth = inCurrentMonth ? month : month === 1 ? 12 : month - 1;
-  const startDay = effectivePayDay(startYear, startMonth, payDay);
-
-  const nextYear = startMonth === 12 ? startYear + 1 : startYear;
-  const nextMonth = startMonth === 12 ? 1 : startMonth + 1;
-  const nextPayDate = formatISO(nextYear, nextMonth, effectivePayDay(nextYear, nextMonth, payDay));
-
-  return {
-    key: `${startYear}-${String(startMonth).padStart(2, '0')}`,
-    start: formatISO(startYear, startMonth, startDay),
-    end: addDaysISO(nextPayDate, -1),
-  };
-}
-
-/**
- * Delegates to domain.payPeriod once implemented (prompt 02/08), falling back to the
- * SPEC §4 calculation while domain stubs throw "not implemented".
- */
-export function resolvePayPeriod(date: ISODate, payDay: number): PayPeriod {
-  try {
-    return domainPayPeriod(date, payDay);
-  } catch (err) {
-    if (err instanceof Error && err.message.startsWith('not implemented:')) {
-      return computePayPeriod(date, payDay);
-    }
-    throw err;
-  }
-}
-
 export type PeriodOffset = '0' | '1' | '2';
 
 export interface PeriodOption {
@@ -109,9 +52,9 @@ export interface PeriodOption {
 }
 
 export function getPeriodOptions(today: ISODate, payDay: number): PeriodOption[] {
-  const p0 = resolvePayPeriod(today, payDay);
-  const p1 = resolvePayPeriod(addDaysISO(p0.start, -1), payDay);
-  const p2 = resolvePayPeriod(addDaysISO(p1.start, -1), payDay);
+  const p0 = payPeriod(today, payDay);
+  const p1 = payPeriod(addDays(p0.start, -1), payDay);
+  const p2 = payPeriod(addDays(p1.start, -1), payDay);
   return [
     { offset: '0', label: 'รอบนี้', period: p0 },
     { offset: '1', label: 'รอบก่อน', period: p1 },
@@ -120,12 +63,12 @@ export function getPeriodOptions(today: ISODate, payDay: number): PeriodOption[]
 }
 
 export function formatThaiDate(iso: ISODate): string {
-  const { year, month, day } = parseISO(iso);
+  const { year, month, day } = parseISODate(iso);
   return `${day} ${thaiMonthShort(month - 1)} ${year + 543}`;
 }
 
 export function formatThaiShort(iso: ISODate): string {
-  const { month, day } = parseISO(iso);
+  const { month, day } = parseISODate(iso);
   return `${day} ${thaiMonthShort(month - 1)}`;
 }
 

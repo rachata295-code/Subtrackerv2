@@ -59,7 +59,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-[480px] flex-col justify-center bg-ground px-screen py-6">
+    <div className="mx-auto flex min-h-dvh w-full max-w-phone flex-col justify-center bg-ground px-screen py-6">
       <main>
         <Card>
           <header className="mb-5">

@@ -9,7 +9,7 @@ import { TextField } from '../../components/ui/TextField';
 import { notify } from '../../components/ui/Toaster';
 import { useDeleteInstallment, useUpsertInstallment } from '../../hooks/useFinance';
 import type { FinanceData, ISODate, Installment } from '../../types/finance';
-import { SelectField } from './SelectField';
+import { SelectField } from '../../components/ui/SelectField';
 import {
   bahtToSatang,
   findOverPeriodsForInstallment,

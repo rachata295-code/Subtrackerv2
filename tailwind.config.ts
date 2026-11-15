@@ -78,6 +78,7 @@ export default {
       },
       minHeight: { tap: 'var(--tap-min)' },
       minWidth: { tap: 'var(--tap-min)' },
+      maxWidth: { phone: '480px' },
       transitionTimingFunction: {
         out: 'var(--ease-out)',
         'in-out': 'var(--ease-in-out)',

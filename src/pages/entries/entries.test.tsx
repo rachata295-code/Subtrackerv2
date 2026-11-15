@@ -55,7 +55,7 @@ vi.mock('../../hooks/useFinance', () => ({
 }));
 
 import EntriesPage from './index';
-import { resolvePayPeriod } from './entriesUtils';
+import { payPeriod } from '../../domain';
 import { useState } from 'react';
 
 function StatefulHarness({ initial, today = '2026-11-15' }: { initial: FinanceData; today?: string }) {
@@ -380,12 +380,12 @@ describe('<EntriesPage>', () => {
   });
 
   it('handles payDay 31 across short months in payPeriod calculation', () => {
-    expect(resolvePayPeriod('2026-01-31', 31)).toEqual({
+    expect(payPeriod('2026-01-31', 31)).toEqual({
       key: '2026-01',
       start: '2026-01-31',
       end: '2026-02-27',
     });
-    expect(resolvePayPeriod('2026-02-28', 31)).toEqual({
+    expect(payPeriod('2026-02-28', 31)).toEqual({
       key: '2026-02',
       start: '2026-02-28',
       end: '2026-03-30',

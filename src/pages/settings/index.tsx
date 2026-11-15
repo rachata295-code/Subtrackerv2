@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useOptionalAuth } from '../../auth';
 import { ThemeSwitch } from '../../components/ThemeSwitch';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
@@ -25,7 +26,7 @@ import { SourceSheet } from './SourceSheet';
 import { formatSourceSummary, parseDayOfMonth } from './settingsUtils';
 
 export interface SettingsPageProps {
-  /** Wired to useAuth().signOut by prompt 08 once prompt 03 auth is merged. */
+  /** Optional signOut override for isolated tests; defaults to AuthProvider's signOut. */
   onSignOut?: () => void | Promise<void>;
 }
 
@@ -95,7 +96,8 @@ function SalaryForm({
 }
 
 export default function SettingsPage({ onSignOut }: SettingsPageProps) {
-  const { data, isLoading, error } = useFinanceData();
+  const auth = useOptionalAuth();
+  const { data, isLoading, error, refetch } = useFinanceData();
   const updateSettings = useUpdateSettings();
   const upsertSource = useUpsertSource();
   const deleteSource = useDeleteSource();
@@ -144,18 +146,17 @@ export default function SettingsPage({ onSignOut }: SettingsPageProps) {
   };
 
   const handleSignOut = async () => {
-    if (onSignOut) {
-      await onSignOut();
-      return;
+    const signOutFn = onSignOut ?? auth?.signOut;
+    if (signOutFn) {
+      await signOutFn();
     }
-    notify('ยังไม่เชื่อมต่อระบบบัญชี');
   };
 
   const activeSources = (data?.sources ?? []).filter((s) => !s.archived);
   const archivedSources = (data?.sources ?? []).filter((s) => s.archived);
 
   return (
-    <main className="mx-auto w-full max-w-[480px] px-screen pb-8 pt-5">
+    <>
       <h1 className="text-title font-semibold text-text">ตั้งค่า</h1>
 
       {isLoading ? (
@@ -165,8 +166,13 @@ export default function SettingsPage({ onSignOut }: SettingsPageProps) {
           <Skeleton className="h-24 w-full" />
         </div>
       ) : error ? (
-        <Card className="mt-4">
+        <Card className="mt-4 flex flex-col items-start gap-3" role="alert">
           <p className="text-sm text-negative">โหลดการตั้งค่าไม่สำเร็จ: {error.message}</p>
+          {refetch ? (
+            <Button variant="secondary" onClick={() => refetch()}>
+              ลองใหม่
+            </Button>
+          ) : null}
         </Card>
       ) : data ? (
         <div className="mt-4 space-y-5">
@@ -298,6 +304,6 @@ export default function SettingsPage({ onSignOut }: SettingsPageProps) {
           />
         </div>
       ) : null}
-    </main>
+    </>
   );
 }

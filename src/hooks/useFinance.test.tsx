@@ -6,6 +6,7 @@ import { financeFixture } from '../fixtures/finance';
 import * as financeRepo from '../data/financeRepo';
 import {
   useCreateTransaction,
+  useDeleteBillPayment,
   useFinanceData,
   usePayBill,
   useUpdateSettings,
@@ -183,5 +184,47 @@ describe('useFinance hooks with TanStack Query + mocked repo', () => {
     expect(result.current.isLoading).toBe(false);
     expect(result.current.data).toBeUndefined();
     expect(result.current.error?.message).toMatch(/VITE_SUPABASE_URL/);
+  });
+
+  it('exposes refetch on useFinanceData and supports useDeleteBillPayment for undo', async () => {
+    vi.stubEnv('VITE_USE_FIXTURES', '1');
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(
+      () => ({
+        finance: useFinanceData(),
+        payBill: usePayBill(),
+        deleteBillPayment: useDeleteBillPayment(),
+      }),
+      { wrapper },
+    );
+
+    expect(typeof result.current.finance.refetch).toBe('function');
+
+    let paymentId = '';
+    await act(async () => {
+      const created = await result.current.payBill.mutateAsync({
+        sourceId: 'src-card',
+        statementKey: '2026-11',
+        amount: 107700,
+        paidOn: '2026-11-24',
+      });
+      paymentId = created.id;
+    });
+
+    await waitFor(() => {
+      expect(
+        result.current.finance.data?.payments.some((p) => p.id === paymentId),
+      ).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.deleteBillPayment.mutateAsync(paymentId);
+    });
+
+    await waitFor(() => {
+      expect(
+        result.current.finance.data?.payments.some((p) => p.id === paymentId),
+      ).toBe(false);
+    });
   });
 });

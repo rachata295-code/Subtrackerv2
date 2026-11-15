@@ -98,7 +98,7 @@ describe('domain contracts', () => {
   });
 });
 
-describe('useFinanceData stub', () => {
+describe('useFinanceData contract', () => {
   it('returns financeFixture when VITE_USE_FIXTURES is "1"', () => {
     vi.stubEnv('VITE_USE_FIXTURES', '1');
     const { result } = renderHook(() => useFinanceData());
@@ -106,12 +106,17 @@ describe('useFinanceData stub', () => {
     expect(state.isLoading).toBe(false);
     expect(state.error).toBeNull();
     expect(state.data).toEqual(financeFixture);
+    expect(typeof state.refetch).toBe('function');
   });
 
-  it('returns empty state when VITE_USE_FIXTURES is not set', () => {
+  it('returns a clear Thai config error when Supabase env vars are missing outside fixture mode', () => {
     vi.stubEnv('VITE_USE_FIXTURES', '0');
+    vi.stubEnv('VITE_SUPABASE_URL', '');
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', '');
     const { result } = renderHook(() => useFinanceData());
     expect(result.current.isLoading).toBe(false);
     expect(result.current.data).toBeUndefined();
+    expect(result.current.error?.message).toMatch(/VITE_SUPABASE_URL/);
+    expect(typeof result.current.refetch).toBe('function');
   });
 });

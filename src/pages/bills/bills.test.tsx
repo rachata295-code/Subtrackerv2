@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { toast } from 'sonner';
@@ -8,16 +9,8 @@ import type {
   FinanceData,
   ISODate,
   Installment,
-  InstallmentCharge,
   PayBillInput,
-  PayPeriod,
-  PaymentSource,
-  PeriodKey,
-  Pot,
-  PotStatus,
-  StatementWindow,
   Subscription,
-  SubscriptionCharge,
   UpsertInstallmentInput,
   UpsertSubscriptionInput,
 } from '../../types/finance';
@@ -27,206 +20,35 @@ vi.mock('../../components/ThemeProvider', () => ({
   useTheme: () => ({ pref: 'light', resolved: 'light', setPref: () => {} }),
 }));
 
-// ---- Spec-compliant domain mock (src/domain is a stub until prompt 02 merges) -------------------------------------
-
-function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
-function parseIso(iso: ISODate): { y: number; m: number; d: number } {
-  const [y, m, d] = iso.split('-').map(Number);
-  return { y, m, d };
-}
-
-function daysInMonth(y: number, m1: number): number {
-  return new Date(Date.UTC(y, m1, 0)).getUTCDate();
-}
-
-function formatIso(y: number, m1: number, d: number): ISODate {
-  return `${y}-${pad2(m1)}-${pad2(d)}`;
-}
-
-function addMonths(y: number, m1: number, delta: number): { y: number; m: number } {
-  const idx = y * 12 + (m1 - 1) + delta;
-  return { y: Math.floor(idx / 12), m: (idx % 12) + 1 };
-}
-
-function addDaysIso(iso: ISODate, delta: number): ISODate {
-  const { y, m, d } = parseIso(iso);
-  const dt = new Date(Date.UTC(y, m - 1, d + delta));
-  return formatIso(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
-}
-
-function clampDate(y: number, m1: number, day: number): ISODate {
-  return formatIso(y, m1, Math.min(day, daysInMonth(y, m1)));
-}
-
-function mockPayPeriod(date: ISODate, payDay: number): PayPeriod {
-  const { y, m, d } = parseIso(date);
-  const startMonth = d >= payDay ? { y, m } : addMonths(y, m, -1);
-  const nextMonth = addMonths(startMonth.y, startMonth.m, 1);
-  const start = clampDate(startMonth.y, startMonth.m, payDay);
-  const nextStart = clampDate(nextMonth.y, nextMonth.m, payDay);
-  return {
-    key: `${startMonth.y}-${pad2(startMonth.m)}`,
-    start,
-    end: addDaysIso(nextStart, -1),
-  };
-}
-
-function mockStatementFor(src: PaymentSource, chargeDate: ISODate): StatementWindow {
-  const { y, m, d } = parseIso(chargeDate);
-  if (src.statementCloseDay === null) {
-    const start = formatIso(y, m, 1);
-    const end = formatIso(y, m, daysInMonth(y, m));
-    const dueYM = addMonths(y, m, src.dueMonthOffset ?? 1);
-    const dueDate = clampDate(dueYM.y, dueYM.m, src.dueDay ?? 10);
-    return { key: `${y}-${pad2(m)}`, start, end, dueDate };
-  }
-  const closeYM = d >= src.statementCloseDay ? addMonths(y, m, 1) : { y, m };
-  const startYM = addMonths(closeYM.y, closeYM.m, -1);
-  const start = clampDate(startYM.y, startYM.m, src.statementCloseDay);
-  const closeDate = clampDate(closeYM.y, closeYM.m, src.statementCloseDay);
-  const end = addDaysIso(closeDate, -1);
-  const dueYM = addMonths(closeYM.y, closeYM.m, src.dueMonthOffset ?? 0);
-  const dueDate = clampDate(dueYM.y, dueYM.m, src.dueDay ?? src.statementCloseDay);
-  return { key: `${closeYM.y}-${pad2(closeYM.m)}`, start, end, dueDate };
-}
-
-function mockSubscriptionCharges(sub: Subscription, from: ISODate, to: ISODate): SubscriptionCharge[] {
-  if (!sub.active) return [];
-  const start = parseIso(from);
-  const end = parseIso(to);
-  const out: SubscriptionCharge[] = [];
-  let cur = { y: start.y, m: start.m };
-  while (cur.y < end.y || (cur.y === end.y && cur.m <= end.m)) {
-    if (sub.frequency === 'monthly' || cur.m === sub.billingMonth) {
-      const date = clampDate(cur.y, cur.m, sub.billingDay);
-      if (date >= from && date <= to) out.push({ date, amount: sub.amount });
-    }
-    cur = addMonths(cur.y, cur.m, 1);
-  }
-  return out;
-}
-
-function mockInstallmentSchedule(inst: Installment): InstallmentCharge[] {
-  const { y, m, d } = parseIso(inst.firstChargeDate);
-  return Array.from({ length: inst.count }, (_, idx) => {
-    const ym = addMonths(y, m, idx);
-    return {
-      n: idx + 1,
-      chargeDate: clampDate(ym.y, ym.m, d),
-      amount: inst.perInstallment,
-    };
-  });
-}
-
-function mockBillAmount(src: PaymentSource, statementKey: PeriodKey, data: FinanceData): number {
-  const [ky, km] = statementKey.split('-').map(Number);
-  const probe = src.statementCloseDay === null ? formatIso(ky, km, 1) : formatIso(ky, km, 1);
-  const win = mockStatementFor(src, probe);
-  let total = 0;
-  for (const tx of data.transactions) {
-    if (tx.sourceId === src.id && tx.direction === 'out' && tx.date >= win.start && tx.date <= win.end) {
-      total += tx.amount;
-    }
-  }
-  for (const sub of data.subscriptions) {
-    if (sub.sourceId === src.id && sub.active) {
-      for (const c of mockSubscriptionCharges(sub, win.start, win.end)) total += c.amount;
-    }
-  }
-  for (const inst of data.installments) {
-    if (inst.sourceId === src.id) {
-      for (const c of mockInstallmentSchedule(inst)) {
-        if (c.chargeDate >= win.start && c.chargeDate <= win.end) total += c.amount;
-      }
-    }
-  }
-  return total;
-}
-
-function mockPotStatus(pot: Pot, periodKey: PeriodKey, data: FinanceData): PotStatus {
-  // Compute period window and charges attributed to `pot` matching SPEC §4.
-  const [py, pm] = periodKey.split('-').map(Number);
-  const period = mockPayPeriod(formatIso(py, pm, data.settings.payDay), data.settings.payDay);
-  const carryIn = pot.rollover && periodKey === '2026-11' ? 54_100 : 0;
-  const budget = pot.perPeriod + carryIn;
-
-  let reserved = 0;
-  let spent = 0;
-
-  for (const tx of data.transactions) {
-    if (tx.potId !== pot.id || tx.direction !== 'out') continue;
-    const src = data.sources.find((s) => s.id === tx.sourceId);
-    if (src && src.kind === 'bank' && tx.date >= period.start && tx.date <= period.end) {
-      spent += tx.amount;
-    }
-  }
-
-  for (const src of data.sources) {
-    if (src.kind === 'bank') continue;
-    // Check statement windows that could fall due in this pay period.
-    for (let offset = -1; offset <= 2; offset++) {
-      const probeYM = addMonths(py, pm, offset);
-      const win = mockStatementFor(src, formatIso(probeYM.y, probeYM.m, 1));
-      const billPeriod = mockPayPeriod(addDaysIso(win.dueDate, -1), data.settings.payDay);
-      if (billPeriod.key !== periodKey) continue;
-
-      let potBill = 0;
-      for (const sub of data.subscriptions) {
-        if (sub.sourceId === src.id && sub.potId === pot.id && sub.active) {
-          for (const c of mockSubscriptionCharges(sub, win.start, win.end)) potBill += c.amount;
-        }
-      }
-      for (const inst of data.installments) {
-        if (inst.sourceId === src.id && inst.potId === pot.id) {
-          for (const c of mockInstallmentSchedule(inst)) {
-            if (c.chargeDate >= win.start && c.chargeDate <= win.end) potBill += c.amount;
-          }
-        }
-      }
-      if (potBill === 0) continue;
-      const paid = data.payments.some((p) => p.sourceId === src.id && p.statementKey === win.key);
-      if (paid) spent += potBill;
-      else reserved += potBill;
-    }
-  }
-
-  const left = budget - reserved - spent;
-  return { carryIn, budget, reserved, spent, left, over: left < 0 };
-}
-
-vi.mock('../../domain', () => ({
-  payPeriod: (date: ISODate, payDay: number) => mockPayPeriod(date, payDay),
-  statementFor: (src: PaymentSource, chargeDate: ISODate) => mockStatementFor(src, chargeDate),
-  subscriptionCharges: (sub: Subscription, from: ISODate, to: ISODate) => mockSubscriptionCharges(sub, from, to),
-  installmentSchedule: (inst: Installment) => mockInstallmentSchedule(inst),
-  billAmount: (src: PaymentSource, statementKey: PeriodKey, data: FinanceData) =>
-    mockBillAmount(src, statementKey, data),
-  upcomingOutflows: () => [],
-  potStatus: (pot: Pot, periodKey: PeriodKey, data: FinanceData) => mockPotStatus(pot, periodKey, data),
-}));
-
-// ---- Controllable finance hooks mock ----------------------------------------------------------------------------
+// ---- Controllable finance hooks mock (uses real src/domain) ------------------------------------------------------
 
 let mockData: FinanceData | undefined = financeFixture;
 let mockLoading = false;
 let mockError: Error | null = null;
+let setMockDataState: ((next: FinanceData) => void) | null = null;
 
 const payBillSpy = vi.fn<(input: PayBillInput) => Promise<BillPayment>>();
+const deleteBillPaymentSpy = vi.fn<(id: string) => Promise<void>>();
 const upsertInstallmentSpy = vi.fn<(input: UpsertInstallmentInput) => Promise<Installment>>();
 const deleteInstallmentSpy = vi.fn<(id: string) => Promise<void>>();
 const upsertSubscriptionSpy = vi.fn<(input: UpsertSubscriptionInput) => Promise<Subscription>>();
 const deleteSubscriptionSpy = vi.fn<(id: string) => Promise<void>>();
 
 vi.mock('../../hooks/useFinance', () => ({
-  useFinanceData: () => ({ data: mockData, isLoading: mockLoading, error: mockError }),
+  useFinanceData: () => ({ data: mockData, isLoading: mockLoading, error: mockError, refetch: vi.fn() }),
   usePayBill: () => ({
     mutate: (input: PayBillInput) => {
       void payBillSpy(input);
     },
     mutateAsync: payBillSpy,
+    isPending: false,
+    error: null,
+  }),
+  useDeleteBillPayment: () => ({
+    mutate: (id: string) => {
+      void deleteBillPaymentSpy(id);
+    },
+    mutateAsync: deleteBillPaymentSpy,
     isPending: false,
     error: null,
   }),
@@ -271,7 +93,22 @@ beforeEach(() => {
   mockData = structuredClone(financeFixture);
   mockLoading = false;
   mockError = null;
-  payBillSpy.mockReset().mockImplementation(async (input) => ({ id: 'pay-new', ...input }));
+  payBillSpy.mockReset().mockImplementation(async (input) => {
+    const created: BillPayment = { id: 'pay-new', ...input };
+    if (mockData) {
+      const next = { ...mockData, payments: [...mockData.payments, created] };
+      mockData = next;
+      setMockDataState?.(next);
+    }
+    return created;
+  });
+  deleteBillPaymentSpy.mockReset().mockImplementation(async (id) => {
+    if (mockData) {
+      const next = { ...mockData, payments: mockData.payments.filter((p) => p.id !== id) };
+      mockData = next;
+      setMockDataState?.(next);
+    }
+  });
   upsertInstallmentSpy
     .mockReset()
     .mockImplementation(async (input) => ({ id: input.id ?? 'inst-new', ...input }));
@@ -286,15 +123,25 @@ afterEach(() => {
   cleanup();
   toast.dismiss();
   vi.useRealTimers();
+  setMockDataState = null;
 });
 
-function renderPage(today: ISODate = '2026-11-15') {
-  return render(
+function StatefulBills({ today }: { today: ISODate }) {
+  const [state, setState] = useState<FinanceData | undefined>(mockData);
+  if (!mockLoading && !mockError && state) {
+    mockData = state;
+  }
+  setMockDataState = setState;
+  return (
     <>
       <BillsPage today={today} />
       <AppToaster />
-    </>,
+    </>
   );
+}
+
+function renderPage(today: ISODate = '2026-11-15') {
+  return render(<StatefulBills today={today} />);
 }
 
 describe('<BillsPage>', () => {
@@ -330,7 +177,7 @@ describe('<BillsPage>', () => {
       expect(within(spaySection).getByText('AirPods งวด 3/10')).toBeTruthy();
     });
 
-    it('calls usePayBill when clicking "จ่ายแล้ว" and shows toast', async () => {
+    it('calls usePayBill when clicking "จ่ายแล้ว" and supports undo via deleteBillPayment', async () => {
       renderPage('2026-11-15');
       const cardSection = screen.getByTestId('bill-card-src-card');
       fireEvent.click(within(cardSection).getByRole('button', { name: /จ่ายแล้ว/ }));
@@ -343,6 +190,12 @@ describe('<BillsPage>', () => {
         }),
       );
       expect(await screen.findByText('บันทึกจ่ายบิลแล้ว')).toBeTruthy();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'เลิกทำ' }));
+      await waitFor(() => expect(deleteBillPaymentSpy).toHaveBeenCalledWith('pay-new'));
+      await waitFor(() =>
+        expect(within(cardSection).getByRole('button', { name: /จ่ายแล้ว/ })).toBeTruthy(),
+      );
     });
 
     it('shows collapsible history of the 3 previous cycles', () => {
