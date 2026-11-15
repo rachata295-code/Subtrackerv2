@@ -50,6 +50,8 @@ import {
   parseISODate,
 } from './date';
 import { QuickAddSheet } from './QuickAddSheet';
+import { AvailableCard } from '../../components/AvailableCard';
+import { IncomeDueCard } from '../../components/IncomeDueCard';
 
 const UPCOMING_DAYS = 30;
 const UPCOMING_CAP = 5;
@@ -541,6 +543,9 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
               className="!bg-accent !text-on-accent hover-fine:hover:opacity-90 lg:hidden"
             />
           </header>
+
+          <IncomeDueCard data={data} today={today} />
+          <AvailableCard data={data} today={today} />
 
           <div
             data-testid="pots-grid"
