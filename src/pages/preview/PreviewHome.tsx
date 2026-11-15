@@ -257,10 +257,12 @@ export default function PreviewHome() {
             />
           </div>
 
-          <div className="mt-2 flex min-h-tap items-center justify-between gap-3">
+          {/* The live region is the whole row, so a payment is announced as "ยังต้องจ่ายอีก ฿…" (label + amount)
+              rather than a bare number; role=status is polite and atomic. AnimatedMoney's own region is off. */}
+          <div role="status" aria-live="polite" aria-atomic="true" className="mt-2 flex min-h-tap items-center justify-between gap-3">
             <span className="text-sm text-muted">ยังต้องจ่ายอีก</span>
             <div data-testid="owed">
-              <AnimatedMoney value={d.owed} size="md" />
+              <AnimatedMoney value={d.owed} size="md" live={false} />
             </div>
           </div>
         </Card>

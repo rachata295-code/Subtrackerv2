@@ -116,6 +116,14 @@ describe('<AnimatedMoney>', () => {
     expect(container.querySelector('.money-out')).toBeNull();
   });
 
+  it('does not loop when the value is NaN (Object.is, not !==)', () => {
+    const { container, rerender } = render(<AnimatedMoney value={NaN} />);
+    // With `!==`, NaN !== NaN is always true and the render-phase setState would never settle.
+    rerender(<AnimatedMoney value={NaN} />);
+    expect(container.textContent).toBe('—');
+    expect(container.querySelector('.money-in, .money-out')).toBeNull();
+  });
+
   it('settles on the latest value when changed again mid-fade', async () => {
     const { container, rerender } = render(<AnimatedMoney value={100} />);
     rerender(<AnimatedMoney value={200} />);
@@ -198,9 +206,15 @@ describe('<PreviewHome>', () => {
   it('paying twice quickly is idempotent: still ฿1,381.93 (not ฿304.93) and the bar total holds', async () => {
     renderHome();
     const button = payButtons()[0];
-    fireEvent.click(button);
-    fireEvent.click(button);
-    fireEvent.click(button);
+    // Both taps happen inside ONE act, so React has not re-rendered between them: the second tap still hits the
+    // live button and the same handler, exactly like a real double tap. (Separate fireEvent calls each flush, so
+    // the button would already be gone by the second one and the test would prove nothing.)
+    act(() => {
+      expect(button.isConnected).toBe(true);
+      fireEvent.click(button);
+      expect(button.isConnected).toBe(true);
+      fireEvent.click(button);
+    });
     await waitFor(() => expect(owed().textContent).toBe('฿1,381.93'));
     // Let any pending timers run, then re-check: nothing may drift afterwards.
     await act(async () => {
@@ -210,6 +224,17 @@ describe('<PreviewHome>', () => {
     expect(playLeft().textContent).toBe('฿662.07');
     expect(tileAmount('ก้อน 3,000 + ยกมา 541')).toBe('฿3,541.00');
     expect(screen.getByRole('img', { name: 'เหลือ ฿662.07' })).toBeTruthy();
+  });
+
+  it('announces the owed figure together with its label, not as a bare amount', async () => {
+    renderHome();
+    const live = owed().closest('[aria-live]')!;
+    expect(live.getAttribute('aria-live')).toBe('polite');
+    expect(live.textContent).toBe('ยังต้องจ่ายอีก฿2,458.93');
+    // Only one live region owns the figure: a nested one would announce the bare amount a second time.
+    expect(live.querySelectorAll('[aria-live]')).toHaveLength(0);
+    fireEvent.click(payButtons()[0]);
+    await waitFor(() => expect(live.textContent).toBe('ยังต้องจ่ายอีก฿1,381.93'));
   });
 
   it('paying the last open bill draws a check, then the row leaves', async () => {
