@@ -42,6 +42,14 @@ export MIGRATE_PASSWORD="your-password"
 node scripts/migrate-v1/migrate.mjs --apply --airpods-count 10 --airpods-first 2026-09-01
 ```
 
+> **ก่อน `--apply` บนฐานข้อมูลที่ติดตั้งไว้แล้ว** ให้รัน `supabase/migrations/2026-11-15-budget-start.sql` ใน Supabase SQL editor เพื่อเพิ่มคอลัมน์ `settings.budget_start_period` (ฐานข้อมูลใหม่จาก `schema.sql` มีอยู่แล้ว)
+
+หลังเขียนข้อมูล สคริปต์จะตั้ง `settings.budget_start_period` เป็น **รอบเงินเดือนปัจจุบัน** (เขตเวลา Asia/Bangkok) เฉพาะเมื่อค่านี้ยังว่าง เพื่อไม่ให้ยอดเหลือ/ติดลบของประวัติเก่าไหลมารวมในก้อนเงินรอบนี้ — ใช้ `--budget-start YYYY-MM` เพื่อกำหนดรอบเอง (ไม่ทับค่าที่ตั้งไว้แล้ว แก้ภายหลังได้ที่หน้าตั้งค่า):
+
+```sh
+node scripts/migrate-v1/migrate.mjs --apply --budget-start 2026-11
+```
+
 ## กฎการแปลงข้อมูล (Mapping)
 
 | v1 ตาราง / เงื่อนไข | v2 ตาราง / ช่องทาง |
@@ -53,6 +61,7 @@ node scripts/migrate-v1/migrate.mjs --apply --airpods-count 10 --airpods-first 2
 | `transfer_entries` (`direction = incoming`) | `transactions` (`in`) · ช่องทาง `บัญชี` · `category = other` |
 | `transfer_entries` (`direction != incoming`) | ข้ามและรายงานในสรุป |
 | `budget_settings.monthly_income` (> 0) | `settings.salary` |
+| (ไม่มีใน v1) | `settings.budget_start_period` = รอบปัจจุบัน ถ้ายังว่าง (หรือค่าจาก `--budget-start`) |
 
 ## Idempotency (รันซ้ำได้ไม่สร้างซ้ำ)
 

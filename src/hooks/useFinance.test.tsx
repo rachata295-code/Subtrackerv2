@@ -100,6 +100,7 @@ describe('useFinance hooks with TanStack Query + mocked repo', () => {
       userId: 'u1',
       salary: 1200000,
       payDay: 10,
+      budgetStartPeriod: null,
     });
 
     const { queryClient, wrapper } = createWrapper();

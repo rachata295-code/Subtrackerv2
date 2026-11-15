@@ -9,6 +9,7 @@ import {
   formatDryRunReport,
   hasAirpodsSubscription,
   mapV1CsvSet,
+  parseBudgetStartPeriod,
 } from './mapper.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -34,6 +35,8 @@ function printHelp() {
   --input <dir>              โฟลเดอร์ที่เก็บไฟล์ CSV ทั้ง 4 ตาราง (ค่าเริ่มต้น: scripts/migrate-v1/input)
   --airpods-count <จำนวน>    จำนวนงวดผ่อน AirPods (เช่น 10)
   --airpods-first <วันที่>   วันคิดค่างวดแรกของ AirPods (YYYY-MM-DD หรือ YYYY-MM เช่น 2026-09-01)
+  --budget-start <YYYY-MM>   รอบเงินเดือนที่เริ่มนับก้อนเงินยกยอด (ค่าเริ่มต้น: รอบปัจจุบัน ตามเวลา Asia/Bangkok)
+                             ตั้งให้เฉพาะเมื่อ settings.budget_start_period ยังว่าง ไม่ทับค่าที่เคยตั้งไว้
   -h, --help                 แสดงวิธีใช้งาน
 
 ตัวแปรสภาพแวดล้อมสำหรับ --apply (อ่านจาก shell หรือ .env.local):
@@ -51,6 +54,7 @@ export function parseCliArgs(argv) {
     inputDir: DEFAULT_INPUT_DIR,
     airpodsCount: undefined,
     airpodsFirst: undefined,
+    budgetStart: undefined,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -79,6 +83,12 @@ export function parseCliArgs(argv) {
       args.airpodsFirst = next;
     } else if (token.startsWith('--airpods-first=')) {
       args.airpodsFirst = token.slice('--airpods-first='.length);
+    } else if (token === '--budget-start') {
+      const next = argv[++i];
+      if (!next) throw new Error('--budget-start ต้องระบุรอบในรูปแบบ YYYY-MM');
+      args.budgetStart = parseBudgetStartPeriod(next);
+    } else if (token.startsWith('--budget-start=')) {
+      args.budgetStart = parseBudgetStartPeriod(token.slice('--budget-start='.length));
     } else {
       throw new Error(`ไม่รู้จัก argument: ${token} (ใช้ --help เพื่อดูตัวเลือกทั้งหมด)`);
     }
@@ -224,7 +234,7 @@ export async function runCli(argv = process.argv.slice(2)) {
   const { airpodsCount, airpodsFirst } = await promptAirpodsIfNeeded(csvTexts, args);
 
   if (!args.apply) {
-    const mapped = mapV1CsvSet(csvTexts, { airpodsCount, airpodsFirst });
+    const mapped = mapV1CsvSet(csvTexts, { airpodsCount, airpodsFirst, budgetStart: args.budgetStart });
     console.log(formatDryRunReport(mapped, { applyMode: false }));
     console.log('\nหากตรวจสอบยอดถูกต้องแล้ว ให้รันด้วย --apply เพื่อเขียนลง Supabase v2');
     return;
@@ -247,13 +257,24 @@ export async function runCli(argv = process.argv.slice(2)) {
     const mapped = mapV1CsvSet(csvTexts, {
       airpodsCount,
       airpodsFirst,
+      budgetStart: args.budgetStart,
       userId: authData.user.id,
     });
     console.log(formatDryRunReport(mapped, { applyMode: true }));
 
-    const result = await applyMigration(mapped, client, authData.user.id);
+    const result = await applyMigration(mapped, client, authData.user.id, {
+      budgetStart: args.budgetStart,
+    });
     console.log('\nผลการย้ายข้อมูล (--apply):');
     console.log(`  - settings        : ${result.settingsAction}`);
+    const bs = result.budgetStart;
+    if (bs.action === 'set') {
+      console.log(`  - budget_start_period: ตั้งเป็น ${bs.period} (ยังไม่เคยตั้งค่า)`);
+    } else if (bs.action === 'kept') {
+      console.log(`  - budget_start_period: คงค่าเดิม ${bs.period} (ไม่ทับค่าที่ตั้งไว้แล้ว)`);
+    } else {
+      console.log('  - budget_start_period: ข้าม (ไม่พบแถว settings)');
+    }
     console.log(
       `  - subscriptions   : เพิ่ม ${result.inserted.subscriptions} | ข้ามซ้ำ ${result.skipped.subscriptions}`,
     );

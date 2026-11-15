@@ -9,6 +9,8 @@ export const financeFixture: FinanceData = {
     userId: 'fixture-user',
     salary: 1_020_000,
     payDay: 10,
+    // null keeps the SPEC §4 example (carryIn 541 from the first data period) unchanged.
+    budgetStartPeriod: null,
   },
   sources: [
     {

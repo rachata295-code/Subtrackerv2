@@ -149,7 +149,13 @@ export function useUpdateSettings(): UseFinanceMutation<UpdateSettingsInput, Set
   return useFinanceMutation(
     (input) => updateSettings(input),
     (current, input) => {
-      const settings: Settings = { ...current.settings, ...input };
+      // An omitted budgetStartPeriod means "unchanged"; spreading `undefined` would wipe it.
+      const { budgetStartPeriod, ...rest } = input;
+      const settings: Settings = {
+        ...current.settings,
+        ...rest,
+        ...(budgetStartPeriod !== undefined ? { budgetStartPeriod } : {}),
+      };
       return { data: { ...current, settings }, result: settings };
     },
   );

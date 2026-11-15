@@ -8,6 +8,8 @@ create table if not exists public.settings (
   user_id uuid primary key default auth.uid() references auth.users(id) on delete cascade,
   salary numeric(12, 2) not null check (salary >= 0),
   pay_day integer not null check (pay_day between 1 and 31),
+  -- Pot rollover starts here (carryIn = 0); null = first period with any transaction/payment.
+  budget_start_period text check (budget_start_period ~ '^\d{4}-\d{2}$'),
   created_at timestamptz not null default now()
 );
 

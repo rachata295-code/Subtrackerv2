@@ -28,6 +28,15 @@ function findFirstDataPeriodKey(data: FinanceData): PeriodKey | null {
   return earliest;
 }
 
+/**
+ * Period where the rollover chain starts (carryIn = 0 there).
+ * An explicit `settings.budgetStartPeriod` wins: imported history would otherwise start the chain months back
+ * and push every old surplus/deficit into the current period. Without it, fall back to the first data period.
+ */
+function findRolloverStartKey(data: FinanceData): PeriodKey | null {
+  return data.settings.budgetStartPeriod ?? findFirstDataPeriodKey(data);
+}
+
 function computeSinglePeriodStatus(
   pot: Pot,
   periodKey: PeriodKey,
@@ -121,15 +130,16 @@ function computeSinglePeriodStatus(
 /** Calculate budget, reserved bills, spent, and rollover left for `pot` in `periodKey`. */
 export function potStatus(pot: Pot, periodKey: PeriodKey, data: FinanceData): PotStatus {
   const paidKeys = new Set(data.payments.map((p) => `${p.sourceId}\0${p.statementKey}`));
-  const firstDataKey = findFirstDataPeriodKey(data);
+  const startKey = findRolloverStartKey(data);
 
-  if (!pot.rollover || firstDataKey === null || periodKey <= firstDataKey) {
+  // Periods before the start still get their own spent/reserved/left (history display) but carry nothing forward.
+  if (!pot.rollover || startKey === null || periodKey <= startKey) {
     return computeSinglePeriodStatus(pot, periodKey, data, 0, paidKeys);
   }
 
-  // Roll forward period by period from the first period with recorded activity.
+  // Roll forward period by period from the start period.
   let carryIn: Satang = 0;
-  let cursor = firstDataKey;
+  let cursor = startKey;
   while (cursor < periodKey) {
     const status = computeSinglePeriodStatus(pot, cursor, data, carryIn, paidKeys);
     carryIn = status.left;

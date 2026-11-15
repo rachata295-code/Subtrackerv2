@@ -9,6 +9,7 @@ import { ListRow } from '../../components/ui/ListRow';
 import { Pill } from '../../components/ui/Pill';
 import { SectionHeader } from '../../components/ui/SectionHeader';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { SelectField } from '../../components/ui/SelectField';
 import { TextField } from '../../components/ui/TextField';
 import { notify } from '../../components/ui/Toaster';
 import { HUE_MARK } from '../../components/ui/hue';
@@ -20,27 +21,33 @@ import {
   useUpsertPot,
   useUpsertSource,
 } from '../../hooks/useFinance';
-import type { PaymentSource, Pot, Settings, UpsertPotInput, UpsertSourceInput } from '../../types/finance';
+import type { ISODate, PaymentSource, PeriodKey, Pot, Settings, UpsertPotInput, UpsertSourceInput } from '../../types/finance';
 import { PotSheet } from './PotSheet';
 import { SourceSheet } from './SourceSheet';
-import { formatSourceSummary, parseDayOfMonth } from './settingsUtils';
+import { todayBangkok } from '../entries/entriesUtils';
+import { BUDGET_START_NONE, budgetStartOptions, formatSourceSummary, parseDayOfMonth } from './settingsUtils';
 
 export interface SettingsPageProps {
   /** Optional signOut override for isolated tests; defaults to AuthProvider's signOut. */
   onSignOut?: () => void | Promise<void>;
+  /** Override today (Asia/Bangkok YYYY-MM-DD) so the period picker is deterministic in tests. */
+  today?: ISODate;
 }
 
 function SalaryForm({
   settings,
+  today,
   isPending,
   onSave,
 }: {
   settings: Settings;
+  today: ISODate;
   isPending: boolean;
-  onSave: (salarySatang: number, payDay: number) => Promise<void>;
+  onSave: (salarySatang: number, payDay: number, budgetStartPeriod: PeriodKey | null) => Promise<void>;
 }) {
   const [salary, setSalary] = useState<number | null>(settings.salary / 100);
   const [payDayText, setPayDayText] = useState<string>(String(settings.payDay));
+  const [budgetStart, setBudgetStart] = useState<string>(settings.budgetStartPeriod ?? BUDGET_START_NONE);
   const [salaryError, setSalaryError] = useState<string>();
   const [payDayError, setPayDayError] = useState<string>();
 
@@ -60,7 +67,7 @@ function SalaryForm({
     }
 
     if (!valid) return;
-    await onSave(Math.round(salary! * 100), parsedPayDay!);
+    await onSave(Math.round(salary! * 100), parsedPayDay!, budgetStart === BUDGET_START_NONE ? null : budgetStart);
   };
 
   return (
@@ -86,6 +93,12 @@ function SalaryForm({
             setPayDayError(undefined);
           }}
         />
+        <SelectField
+          label="เริ่มนับก้อนเงินตั้งแต่รอบ"
+          value={budgetStart}
+          options={budgetStartOptions(today, settings.payDay, settings.budgetStartPeriod)}
+          onChange={(e) => setBudgetStart(e.target.value)}
+        />
         {/* Only primary button on the screen (SPEC / PLAN §5.1). */}
         <Button type="submit" variant="primary" size="lg" loading={isPending}>
           บันทึก
@@ -95,7 +108,8 @@ function SalaryForm({
   );
 }
 
-export default function SettingsPage({ onSignOut }: SettingsPageProps) {
+export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPageProps) {
+  const today = todayProp ?? todayBangkok();
   const auth = useOptionalAuth();
   const { data, isLoading, error, refetch } = useFinanceData();
   const updateSettings = useUpdateSettings();
@@ -109,8 +123,8 @@ export default function SettingsPage({ onSignOut }: SettingsPageProps) {
   const [potSheetOpen, setPotSheetOpen] = useState(false);
   const [editingPot, setEditingPot] = useState<Pot | null>(null);
 
-  const handleSaveSalary = async (salary: number, payDay: number) => {
-    await updateSettings.mutateAsync({ salary, payDay });
+  const handleSaveSalary = async (salary: number, payDay: number, budgetStartPeriod: PeriodKey | null) => {
+    await updateSettings.mutateAsync({ salary, payDay, budgetStartPeriod });
     notify('บันทึกการตั้งค่าแล้ว');
   };
 
@@ -180,8 +194,9 @@ export default function SettingsPage({ onSignOut }: SettingsPageProps) {
             <SectionHeader title="รายได้และรอบเงินเดือน" />
             <div className="mt-1">
               <SalaryForm
-                key={`${data.settings.salary}-${data.settings.payDay}`}
+                key={`${data.settings.salary}-${data.settings.payDay}-${data.settings.budgetStartPeriod ?? ''}`}
                 settings={data.settings}
+                today={today}
                 isPending={updateSettings.isPending}
                 onSave={handleSaveSalary}
               />

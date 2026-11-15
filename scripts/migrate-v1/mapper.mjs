@@ -191,6 +191,38 @@ export function formatBaht(satang) {
 }
 
 /**
+ * Validate a --budget-start value ('YYYY-MM', month 01-12) and return it normalised.
+ */
+export function parseBudgetStartPeriod(raw) {
+  const trimmed = String(raw ?? '').trim();
+  const match = YEAR_MONTH_RE.exec(trimmed);
+  if (!match || Number(match[2]) < 1 || Number(match[2]) > 12) {
+    throw new Error(`--budget-start ต้องเป็นรูปแบบ YYYY-MM (เดือน 01-12) แต่ได้ค่า: ${trimmed || '(ว่าง)'}`);
+  }
+  return trimmed;
+}
+
+/**
+ * Key ('YYYY-MM') of the pay period containing `now` in Asia/Bangkok.
+ * Mirrors src/domain/period.ts payPeriod(): a payDay later than the month's length starts on the last day.
+ */
+export function currentPayPeriodKey(now = new Date(), payDay = 10) {
+  const [y, m, d] = BANGKOK_FORMATTER.format(now).split('-').map(Number);
+  const startDay = Math.min(payDay, daysInMonth(y, m));
+  let year = y;
+  let month = m;
+  if (d < startDay) {
+    // Before this month's pay day we are still in the period that started last month.
+    month -= 1;
+    if (month === 0) {
+      month = 12;
+      year -= 1;
+    }
+  }
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+/**
  * Resolve --airpods-first accepting either YYYY-MM-DD or YYYY-MM (using billingDay clamped to the month).
  */
 export function resolveAirpodsFirstDate(raw, billingDay = 1) {
@@ -280,6 +312,10 @@ export function mapV1CsvSet(csvTexts, options = {}) {
   const userScope = options.userId || 'dry-run-user';
   const warnings = [];
   const seenFingerprints = new Map();
+
+  // Where the pot rollover chain will start. Validated up front so a typo fails the dry-run, not --apply.
+  const budgetStartOverride =
+    options.budgetStart === undefined ? null : parseBudgetStartPeriod(options.budgetStart);
 
   const subRows = parseCsv(csvTexts.subscriptions ?? '');
   const settingsRows = parseCsv(csvTexts.budget_settings ?? '');
@@ -533,6 +569,11 @@ export function mapV1CsvSet(csvTexts, options = {}) {
         totalSatang: transferOutgoingSatang,
       },
     },
+    budgetStart: {
+      // Dry-run cannot read the DB, so the default assumes payDay 10 (SPEC §1); apply recomputes with the stored pay_day.
+      period: budgetStartOverride ?? currentPayPeriodKey(options.now ?? new Date(), 10),
+      explicit: budgetStartOverride !== null,
+    },
   };
 
   return {
@@ -549,7 +590,7 @@ export function mapV1CsvSet(csvTexts, options = {}) {
  * Build a human-readable summary comparing v1 source tables against mapped v2 targets.
  */
 export function formatDryRunReport(mapped, { applyMode = false } = {}) {
-  const { before, after, skipped } = mapped.summary;
+  const { before, after, skipped, budgetStart } = mapped.summary;
   const lines = [];
 
   lines.push(
@@ -596,6 +637,10 @@ export function formatDryRunReport(mapped, { applyMode = false } = {}) {
   );
   lines.push(
     `  - transactions(in) : ${after.transactionsIn.count} แถว | รวม = ${formatBaht(after.transactionsIn.totalSatang)} บาท (บัญชี)`,
+  );
+
+  lines.push(
+    `  - settings.budget_start_period: จะตั้งเป็นรอบ ${budgetStart.period}${budgetStart.explicit ? ' (จาก --budget-start)' : ' (รอบเงินเดือนปัจจุบัน)'} เฉพาะเมื่อยังว่างอยู่ — กันยอดสะสมของประวัติเก่าไม่ให้ยกมารอบนี้`,
   );
 
   if (skipped.outgoingTransfers.count > 0) {
@@ -658,7 +703,7 @@ async function insertInChunks(client, table, rows, chunkSize = 100) {
 /**
  * Apply mapped v2 records idempotently through a user-authenticated Supabase client (anon key + RLS).
  */
-export async function applyMigration(mapped, client, userId) {
+export async function applyMigration(mapped, client, userId, options = {}) {
   if (!userId) {
     throw new Error('ไม่พบ userId สำหรับ RLS');
   }
@@ -672,14 +717,21 @@ export async function applyMigration(mapped, client, userId) {
   const [sources, pots, existingSettings, existingSubs, existingInsts, existingTxs] = await Promise.all([
     fetchAllRows(client, 'payment_sources', 'id, name, kind'),
     fetchAllRows(client, 'pots', 'id, name'),
-    client.from('settings').select('user_id, salary, pay_day').eq('user_id', userId).maybeSingle(),
+    client
+      .from('settings')
+      .select('user_id, salary, pay_day, budget_start_period')
+      .eq('user_id', userId)
+      .maybeSingle(),
     fetchAllRows(client, 'subscriptions', 'id, name'),
     fetchAllRows(client, 'installments', 'id, name'),
     fetchAllRows(client, 'transactions', 'id, note'),
   ]);
 
   if (existingSettings.error) {
-    throw new Error(`โหลด settings ไม่สำเร็จ: ${existingSettings.error.message}`);
+    const hint = String(existingSettings.error.message).includes('budget_start_period')
+      ? ' (ยังไม่ได้รัน supabase/migrations/2026-11-15-budget-start.sql ใน Supabase SQL editor?)'
+      : '';
+    throw new Error(`โหลด settings ไม่สำเร็จ: ${existingSettings.error.message}${hint}`);
   }
 
   const bankSource = sources.find((s) => s.kind === 'bank') ?? sources.find((s) => s.name === 'บัญชี');
@@ -724,6 +776,30 @@ export async function applyMigration(mapped, client, userId) {
       if (upsertErr) throw new Error(`อัปเดต settings.salary ไม่สำเร็จ: ${upsertErr.message}`);
       settingsAction = 'updated';
     }
+  }
+
+  // Start the pot rollover at the current pay period, but only if the owner has not chosen one already
+  // (e.g. in Settings): re-running the migration must never overwrite that choice, hence the "is null" guard.
+  const budgetStartOverride =
+    options.budgetStart === undefined ? null : parseBudgetStartPeriod(options.budgetStart);
+  const storedBudgetStart = existingSettings.data?.budget_start_period ?? null;
+  const hasSettingsRow = existingSettings.data !== null || settingsAction !== 'skipped';
+  // Without a settings row there is nothing to update (seed_defaults normally creates it; salary is NOT NULL).
+  let budgetStart = { action: 'skipped', period: null };
+  if (!hasSettingsRow) {
+    // keep the 'skipped' default
+  } else if (storedBudgetStart !== null) {
+    budgetStart = { action: 'kept', period: storedBudgetStart };
+  } else {
+    const payDay = existingSettings.data?.pay_day ?? 10;
+    const target = budgetStartOverride ?? currentPayPeriodKey(options.now ?? new Date(), payDay);
+    const { error: startErr } = await client
+      .from('settings')
+      .update({ budget_start_period: target })
+      .eq('user_id', userId)
+      .is('budget_start_period', null);
+    if (startErr) throw new Error(`ตั้งค่า settings.budget_start_period ไม่สำเร็จ: ${startErr.message}`);
+    budgetStart = { action: 'set', period: target };
   }
 
   const existingSubIds = new Set(existingSubs.map((r) => r.id));
@@ -781,6 +857,7 @@ export async function applyMigration(mapped, client, userId) {
 
   return {
     settingsAction,
+    budgetStart,
     inserted: {
       subscriptions: subsToInsert.length,
       installments: instsToInsert.length,

@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import {
   applyMigration,
   formatDryRunReport,
+  currentPayPeriodKey,
   mapV1CsvSet,
+  parseBudgetStartPeriod,
   parseCsv,
   parseMoneyToSatang,
   resolveAirpodsFirstDate,
@@ -271,7 +273,9 @@ function createFakeSupabaseClient(userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
   function makeQuery(table) {
     let op = 'select';
     let payload = null;
+    // Each filter is a predicate so eq() and is() (null checks) can share one list.
     let filters = [];
+    const matches = (row) => filters.every((f) => f(row));
 
     const builder = {
       select() {
@@ -282,16 +286,26 @@ function createFakeSupabaseClient(userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
       },
       range(from, to) {
         const rows = db[table]
-          .filter((row) => filters.every(([k, v]) => row[k] === v))
+          .filter(matches)
           .slice(from, to + 1);
         return Promise.resolve({ data: rows, error: null });
       },
       eq(col, val) {
-        filters.push([col, val]);
+        filters.push((row) => row[col] === val);
+        return builder;
+      },
+      is(col, val) {
+        // PostgREST `is`: a missing column counts as null, like a nullable column that was never set.
+        filters.push((row) => (row[col] ?? null) === val);
+        return builder;
+      },
+      update(values) {
+        op = 'update';
+        payload = values;
         return builder;
       },
       maybeSingle() {
-        const rows = db[table].filter((row) => filters.every(([k, v]) => row[k] === v));
+        const rows = db[table].filter(matches);
         return Promise.resolve({ data: rows[0] ?? null, error: null });
       },
       insert(rows) {
@@ -305,6 +319,10 @@ function createFakeSupabaseClient(userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
         return builder;
       },
       then(resolve) {
+        if (op === 'update') {
+          for (const row of db[table].filter(matches)) Object.assign(row, payload);
+          return resolve({ data: null, error: null });
+        }
         if (op === 'insert') {
           const inserted = payload.map((r) => ({ ...r, user_id: r.user_id ?? userId }));
           for (const row of inserted) {
@@ -323,7 +341,7 @@ function createFakeSupabaseClient(userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
           }
           return resolve({ data: payload, error: null });
         }
-        const rows = db[table].filter((row) => filters.every(([k, v]) => row[k] === v));
+        const rows = db[table].filter(matches);
         return resolve({ data: rows, error: null });
       },
     };
@@ -464,6 +482,111 @@ describe('applyMigration idempotency', () => {
   });
 });
 
+describe('budget start period', () => {
+  it('computes the current pay period in Asia/Bangkok, not in UTC', () => {
+    expect(currentPayPeriodKey(new Date('2026-11-15T05:00:00Z'), 10)).toBe('2026-11');
+    expect(currentPayPeriodKey(new Date('2026-11-09T05:00:00Z'), 10)).toBe('2026-10');
+    // 2026-11-09 18:00 UTC is already 10 Nov 01:00 in Bangkok -> new period has started.
+    expect(currentPayPeriodKey(new Date('2026-11-09T18:00:00Z'), 10)).toBe('2026-11');
+    // Before pay day in January belongs to the period that began in December of the previous year.
+    expect(currentPayPeriodKey(new Date('2026-01-05T05:00:00Z'), 10)).toBe('2025-12');
+    // payDay 31 clamps to the last day of short months (matches src/domain/period.ts).
+    expect(currentPayPeriodKey(new Date('2026-02-28T05:00:00Z'), 31)).toBe('2026-02');
+    expect(currentPayPeriodKey(new Date('2026-02-27T05:00:00Z'), 31)).toBe('2026-01');
+  });
+
+  it('validates --budget-start as YYYY-MM with month 01-12', () => {
+    expect(parseBudgetStartPeriod(' 2026-11 ')).toBe('2026-11');
+    for (const bad of ['2026-13', '2026-00', '2026-1', '2026-11-10', 'nov', '']) {
+      expect(() => parseBudgetStartPeriod(bad)).toThrow(/--budget-start/);
+    }
+  });
+
+  it('shows the planned start period in the dry-run report', () => {
+    const csv = { subscriptions: '', budget_settings: '', budget_entries: '', transfer_entries: '' };
+    const auto = mapV1CsvSet(csv, { now: new Date('2026-11-15T05:00:00Z') });
+    expect(auto.summary.budgetStart).toEqual({ period: '2026-11', explicit: false });
+    expect(formatDryRunReport(auto)).toContain('budget_start_period: จะตั้งเป็นรอบ 2026-11 (รอบเงินเดือนปัจจุบัน)');
+
+    const forced = mapV1CsvSet(csv, { budgetStart: '2026-09' });
+    expect(formatDryRunReport(forced)).toContain('จะตั้งเป็นรอบ 2026-09 (จาก --budget-start)');
+    expect(() => mapV1CsvSet(csv, { budgetStart: 'bogus' })).toThrow(/--budget-start/);
+  });
+
+  it('sets budget_start_period to the current pay period only while it is null', async () => {
+    const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const client = createFakeSupabaseClient();
+    const mapped = mapV1CsvSet(
+      { subscriptions: '', budget_settings: '', budget_entries: '', transfer_entries: '' },
+      { userId },
+    );
+    const now = new Date('2026-11-15T05:00:00Z');
+
+    const first = await applyMigration(mapped, client, userId, { now });
+    expect(first.budgetStart).toEqual({ action: 'set', period: '2026-11' });
+    expect(client.db.settings[0].budget_start_period).toBe('2026-11');
+
+    // A later re-run (even in a later period, even with the flag) must not overwrite the stored choice.
+    const later = new Date('2026-12-20T05:00:00Z');
+    const second = await applyMigration(mapped, client, userId, { now: later, budgetStart: '2026-09' });
+    expect(second.budgetStart).toEqual({ action: 'kept', period: '2026-11' });
+    expect(client.db.settings[0].budget_start_period).toBe('2026-11');
+  });
+
+  it('honours --budget-start when the column is still null, and leaves salary and pay_day alone', async () => {
+    const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const client = createFakeSupabaseClient();
+    const mapped = mapV1CsvSet(
+      { subscriptions: '', budget_settings: '', budget_entries: '', transfer_entries: '' },
+      { userId },
+    );
+
+    const res = await applyMigration(mapped, client, userId, { budgetStart: '2026-09' });
+    expect(res.budgetStart).toEqual({ action: 'set', period: '2026-09' });
+    expect(client.db.settings[0]).toMatchObject({ salary: '10200.00', pay_day: 10, budget_start_period: '2026-09' });
+  });
+
+  it('uses the stored pay_day when deriving the current period', async () => {
+    const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const client = createFakeSupabaseClient();
+    client.db.settings[0].pay_day = 25;
+    const mapped = mapV1CsvSet(
+      { subscriptions: '', budget_settings: '', budget_entries: '', transfer_entries: '' },
+      { userId },
+    );
+
+    // 15 Nov is before pay day 25, so the active period began in October.
+    const res = await applyMigration(mapped, client, userId, { now: new Date('2026-11-15T05:00:00Z') });
+    expect(res.budgetStart).toEqual({ action: 'set', period: '2026-10' });
+  });
+
+  it('points at the SQL migration when the budget_start_period column does not exist yet', async () => {
+    const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const client = createFakeSupabaseClient();
+    const realFrom = client.from;
+    client.from = (table) => {
+      const builder = realFrom(table);
+      if (table !== 'settings') return builder;
+      return {
+        ...builder,
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({
+              data: null,
+              error: { message: 'column settings.budget_start_period does not exist' },
+            }),
+          }),
+        }),
+      };
+    };
+    const mapped = mapV1CsvSet(
+      { subscriptions: '', budget_settings: '', budget_entries: '', transfer_entries: '' },
+      { userId },
+    );
+    await expect(applyMigration(mapped, client, userId)).rejects.toThrow(/2026-11-15-budget-start\.sql/);
+  });
+});
+
 describe('parseCliArgs', () => {
   it('defaults to dry-run and parses flags cleanly', () => {
     expect(parseCliArgs([])).toMatchObject({ apply: false, help: false });
@@ -474,6 +597,14 @@ describe('parseCliArgs', () => {
       airpodsCount: '10',
       airpodsFirst: '2026-09-01',
     });
+  });
+
+  it('parses --budget-start in both spellings and rejects malformed values', () => {
+    expect(parseCliArgs([]).budgetStart).toBeUndefined();
+    expect(parseCliArgs(['--budget-start', '2026-11']).budgetStart).toBe('2026-11');
+    expect(parseCliArgs(['--budget-start=2026-09']).budgetStart).toBe('2026-09');
+    expect(() => parseCliArgs(['--budget-start'])).toThrow(/--budget-start/);
+    expect(() => parseCliArgs(['--budget-start', '2026-13'])).toThrow(/YYYY-MM/);
   });
 
   it('rejects unknown flags', () => {

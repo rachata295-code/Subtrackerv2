@@ -8,7 +8,7 @@ Routes use `HashRouter` so no server rewrites are needed:
 - `/#/` — ภาพรวม (Overview: play-pot remaining balance, statement bills & upcoming outflows, quick-add transaction)
 - `/#/bills` — บิล & ผ่อน (Bills & installments: unpaid statement bills, recurring subscriptions, active installments)
 - `/#/entries` — รายการ (Entries: period transaction log filtered by payment source, add/edit/delete)
-- `/#/settings` — ตั้งค่า (Settings: salary, payDay, payment sources, budget pots, theme, sign out)
+- `/#/settings` — ตั้งค่า (Settings: salary, payDay, budget start period, payment sources, budget pots, theme, sign out)
 - `/#/login` — เข้าสู่ระบบ (Email + password sign-in)
 - `/#/design` — Design system showcase (tokens, contrast ratios, every component)
 - `/#/preview-home` — Static home layout showcase with sample data
@@ -121,5 +121,10 @@ node scripts/migrate-v1/migrate.mjs --airpods-count 10 --airpods-first 2026-09-0
 # 3. Apply idempotently once verified (reads VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, MIGRATE_EMAIL, MIGRATE_PASSWORD):
 node scripts/migrate-v1/migrate.mjs --apply --airpods-count 10 --airpods-first 2026-09-01
 ```
+
+Notes on what the import does to the budget figures:
+
+- v1 `budget_entries` split by `payment_type`: `cash` goes to the bank account + pot `ใช้จ่ายจำเป็น`, `card` goes to the credit card + pot `ใช้ตามใจ` (so everyday cash spending no longer drains the ฿3,000 discretionary pot). Both pots must exist (they come from `seed_defaults`).
+- `settings.budget_start_period` (rollover start, see SPEC §4) needs `supabase/migrations/2026-11-15-budget-start.sql` on existing databases. After `--apply` the script sets it to the current pay period (Asia/Bangkok) only if it is still empty; override the value with `--budget-start YYYY-MM`. An already-set value is never overwritten, and it can be changed later in Settings.
 
 See [scripts/migrate-v1/README.md](scripts/migrate-v1/README.md) for the full export guide, mapping rules, and idempotency details.

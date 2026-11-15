@@ -55,11 +55,18 @@ describe('money numeric <-> satang mappers', () => {
 
 describe('entity snake_case <-> camelCase mappers', () => {
   it('maps all seven entity rows accurately', () => {
-    expect(mapSettingsFromRow({ user_id: 'u1', salary: '10200.00', pay_day: 10 })).toEqual({
+    expect(
+      mapSettingsFromRow({ user_id: 'u1', salary: '10200.00', pay_day: 10, budget_start_period: null }),
+    ).toEqual({
       userId: 'u1',
       salary: 1020000,
       payDay: 10,
+      budgetStartPeriod: null,
     });
+    expect(
+      mapSettingsFromRow({ user_id: 'u1', salary: '10200.00', pay_day: 10, budget_start_period: '2026-11' })
+        .budgetStartPeriod,
+    ).toBe('2026-11');
 
     expect(
       mapSourceFromRow({
@@ -210,7 +217,10 @@ function makeQueryBuilder(result: QueryResult) {
 describe('financeRepo with mocked Supabase client', () => {
   it('loadFinanceData loads and maps all tables', async () => {
     const tableResults: Record<string, QueryResult> = {
-      settings: { data: { user_id: 'u1', salary: '10200.00', pay_day: 10 }, error: null },
+      settings: {
+        data: { user_id: 'u1', salary: '10200.00', pay_day: 10, budget_start_period: '2026-11' },
+        error: null,
+      },
       payment_sources: {
         data: [
           {
@@ -295,7 +305,7 @@ describe('financeRepo with mocked Supabase client', () => {
     } as unknown as SupabaseClient;
 
     const data = await loadFinanceData(client);
-    expect(data.settings).toEqual({ userId: 'u1', salary: 1020000, payDay: 10 });
+    expect(data.settings).toEqual({ userId: 'u1', salary: 1020000, payDay: 10, budgetStartPeriod: '2026-11' });
     expect(data.installments[0]?.perInstallment).toBe(138193);
     expect(data.transactions[0]?.amount).toBe(22000);
     expect(data.payments[0]?.statementKey).toBe('2026-10');
@@ -322,7 +332,10 @@ describe('financeRepo with mocked Supabase client', () => {
 
   it('supports CRUD mutations with snake_case payloads and numeric strings', async () => {
     const builders: Record<string, ReturnType<typeof makeQueryBuilder>> = {
-      settings: makeQueryBuilder({ data: { user_id: 'u1', salary: '12000.00', pay_day: 15 }, error: null }),
+      settings: makeQueryBuilder({
+        data: { user_id: 'u1', salary: '12000.00', pay_day: 15, budget_start_period: null },
+        error: null,
+      }),
       payment_sources: makeQueryBuilder({
         data: {
           id: 'src-new',
@@ -389,9 +402,21 @@ describe('financeRepo with mocked Supabase client', () => {
     } as unknown as SupabaseClient;
 
     const settings = await updateSettings({ salary: 1200000, payDay: 15 }, client);
-    expect(settings).toEqual({ userId: 'u1', salary: 1200000, payDay: 15 });
+    expect(settings).toEqual({ userId: 'u1', salary: 1200000, payDay: 15, budgetStartPeriod: null });
     expect(builders.settings.upsert).toHaveBeenCalledWith(
       { user_id: 'u1', salary: '12000.00', pay_day: 15 },
+      { onConflict: 'user_id' },
+    );
+
+    // budgetStartPeriod is written when provided (string or explicit null) and untouched when omitted (above).
+    await updateSettings({ salary: 1200000, payDay: 15, budgetStartPeriod: '2026-11' }, client);
+    expect(builders.settings.upsert).toHaveBeenLastCalledWith(
+      { user_id: 'u1', salary: '12000.00', pay_day: 15, budget_start_period: '2026-11' },
+      { onConflict: 'user_id' },
+    );
+    await updateSettings({ salary: 1200000, payDay: 15, budgetStartPeriod: null }, client);
+    expect(builders.settings.upsert).toHaveBeenLastCalledWith(
+      { user_id: 'u1', salary: '12000.00', pay_day: 15, budget_start_period: null },
       { onConflict: 'user_id' },
     );
 
