@@ -6,14 +6,19 @@ import { HoldToDelete } from '../../components/ui/HoldToDelete';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { SelectField } from '../../components/ui/SelectField';
 import { TextField } from '../../components/ui/TextField';
-import { CATEGORY_OPTIONS, isValidISODate } from './entriesUtils';
-import type {
-  Category,
-  CreateTransactionInput,
-  ISODate,
-  PaymentSource,
-  Pot,
-  Transaction,
+import { latestBalanceCheckForSource } from '../plan/planUtils';
+import { isValidISODate } from './entriesUtils';
+import {
+  CATEGORY_LABELS,
+  IN_CATEGORIES,
+  OUT_CATEGORIES,
+  type BalanceCheck,
+  type Category,
+  type CreateTransactionInput,
+  type ISODate,
+  type PaymentSource,
+  type Pot,
+  type Transaction,
 } from '../../types/finance';
 
 export interface EntrySheetProps {
@@ -21,6 +26,7 @@ export interface EntrySheetProps {
   onOpenChange: (open: boolean) => void;
   sources: PaymentSource[];
   pots: Pot[];
+  balanceChecks?: BalanceCheck[];
   today: ISODate;
   editing: Transaction | null;
   onSave: (input: CreateTransactionInput, existingId?: string) => Promise<void>;
@@ -33,9 +39,14 @@ const DIRECTION_OPTIONS: { value: 'out' | 'in'; label: string }[] = [
   { value: 'in', label: 'รายรับ' },
 ];
 
+function isNullPotCategory(category: Category): boolean {
+  return category === 'savings' || category === 'unknown';
+}
+
 function EntryForm({
   sources,
   pots,
+  balanceChecks,
   today,
   editing,
   onSave,
@@ -53,7 +64,9 @@ function EntryForm({
   const [amount, setAmount] = useState<number | null>(editing ? editing.amount / 100 : null);
   const [sourceId, setSourceId] = useState<string>(defaultSourceId);
   const [potId, setPotId] = useState<string>(editing ? (editing.potId ?? '') : (pots[0]?.id ?? ''));
-  const [category, setCategory] = useState<Category>(editing?.category ?? 'food');
+  const [category, setCategory] = useState<Category>(
+    editing?.category ?? (editing?.direction === 'in' ? 'allowance' : 'food'),
+  );
   const [date, setDate] = useState<string>(editing?.date ?? today);
   const [note, setNote] = useState<string>(editing?.note ?? '');
 
@@ -68,16 +81,47 @@ function EntryForm({
     () => [{ value: '', label: 'ไม่ระบุก้อน' }, ...pots.map((pot) => ({ value: pot.id, label: pot.name }))],
     [pots],
   );
-  const categoryOptions = useMemo(
-    () => CATEGORY_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label })),
-    [],
+  const categoryOptions = useMemo(() => {
+    const allowed = direction === 'in' ? IN_CATEGORIES : OUT_CATEGORIES;
+    return allowed.map((cat) => ({ value: cat, label: CATEGORY_LABELS[cat] }));
+  }, [direction]);
+
+  const showPotSelect = direction === 'out' && !isNullPotCategory(category);
+
+  const latestCheck = useMemo(
+    () => (balanceChecks ? latestBalanceCheckForSource(balanceChecks, sourceId) : null),
+    [balanceChecks, sourceId],
   );
+  const selectedSource = selectableSources.find((s) => s.id === sourceId);
+  const isBeforeLatestCheck =
+    selectedSource?.kind === 'bank' &&
+    latestCheck !== null &&
+    isValidISODate(date) &&
+    date < latestCheck.checkedOn;
 
   const handleDirectionChange = (next: 'out' | 'in') => {
     setDirection(next);
-    // Income generally does not come out of a spending pot; clear only on new entries.
-    if (!editing) {
-      setPotId(next === 'in' ? '' : (pots[0]?.id ?? ''));
+    if (next === 'in') {
+      if (!IN_CATEGORIES.includes(category)) {
+        setCategory('allowance');
+      }
+      setPotId('');
+    } else {
+      const nextCat = OUT_CATEGORIES.includes(category) ? category : 'food';
+      setCategory(nextCat);
+      if (!editing && !isNullPotCategory(nextCat)) {
+        setPotId(pots[0]?.id ?? '');
+      }
+    }
+  };
+
+  const handleCategoryChange = (next: Category) => {
+    setCategory(next);
+    // SPEC §6: savings and unknown transactions must have potId = null.
+    if (isNullPotCategory(next)) {
+      setPotId('');
+    } else if (!editing && !potId && direction === 'out') {
+      setPotId(pots[0]?.id ?? '');
     }
   };
 
@@ -100,7 +144,7 @@ function EntryForm({
         amount: Math.round(amount! * 100),
         direction,
         sourceId,
-        potId: potId || null,
+        potId: showPotSelect ? (potId || null) : null,
         category,
         note: note.trim(),
       },
@@ -129,30 +173,39 @@ function EntryForm({
         onChange={(e) => setSourceId(e.target.value)}
       />
 
-      <SelectField
-        label="ก้อนเงิน"
-        options={potOptions}
-        value={potId}
-        onChange={(e) => setPotId(e.target.value)}
-      />
+      {showPotSelect ? (
+        <SelectField
+          label="ก้อนเงิน"
+          options={potOptions}
+          value={potId}
+          onChange={(e) => setPotId(e.target.value)}
+        />
+      ) : null}
 
       <SelectField
         label="หมวดหมู่"
         options={categoryOptions}
         value={category}
-        onChange={(e) => setCategory(e.target.value as Category)}
+        onChange={(e) => handleCategoryChange(e.target.value as Category)}
       />
 
-      <TextField
-        type="date"
-        label="วันที่"
-        value={date}
-        error={dateError}
-        onChange={(e) => {
-          setDate(e.target.value);
-          setDateError(undefined);
-        }}
-      />
+      <div>
+        <TextField
+          type="date"
+          label="วันที่"
+          value={date}
+          error={dateError}
+          onChange={(e) => {
+            setDate(e.target.value);
+            setDateError(undefined);
+          }}
+        />
+        {isBeforeLatestCheck ? (
+          <p role="status" className="mt-1.5 text-xs text-warning">
+            รายการนี้อยู่ก่อนเช็กยอดล่าสุด จึงไม่เปลี่ยนยอดบัญชี
+          </p>
+        ) : null}
+      </div>
 
       <TextField
         label="โน้ต"
@@ -182,6 +235,7 @@ export function EntrySheet({
   onOpenChange,
   sources,
   pots,
+  balanceChecks,
   today,
   editing,
   onSave,
@@ -195,6 +249,7 @@ export function EntrySheet({
           key={editing?.id ?? 'new'}
           sources={sources}
           pots={pots}
+          balanceChecks={balanceChecks}
           today={today}
           editing={editing}
           onSave={onSave}

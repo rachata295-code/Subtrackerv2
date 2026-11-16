@@ -566,18 +566,18 @@ export default function OverviewPage({ today: todayProp }: OverviewPageProps = {
             />
           </header>
 
+          <IncomeDueCard data={data} today={today} />
+          <AvailableCard data={data} today={today} />
           <HotBar
             data={data}
             today={today}
-            className="order-1 lg:order-none"
+            className="order-1"
             onEdit={(item) => {
               setPrefillItem(item);
               setSheetOpen(true);
             }}
             onSaved={(tx) => setAddedTxIds((prev) => new Set(prev).add(tx.id))}
           />
-          <IncomeDueCard data={data} today={today} />
-          <AvailableCard data={data} today={today} />
 
           <div
             data-testid="pots-grid"

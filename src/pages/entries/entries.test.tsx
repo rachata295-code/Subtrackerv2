@@ -626,4 +626,61 @@ describe('<EntriesPage>', () => {
     expect(screen.getByText('ชานม')).toBeTruthy();
     expect(document.querySelectorAll('.row-exit').length).toBe(0);
   });
+
+  it('supports Phase 2 categories (OUT_CATEGORIES vs IN_CATEGORIES), forces potId=null for in/savings/unknown, and warns when date < latest BalanceCheck in EntrySheet', async () => {
+    render(<StatefulHarness initial={makeFixtureClone()} today="2026-11-15" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการ' }));
+    const dialog = screen.getByRole('dialog');
+
+    // Out categories include savings ('เก็บเงิน') and unknown ('ลืมจด')
+    const categorySelect = within(dialog).getByLabelText('หมวดหมู่') as HTMLSelectElement;
+    expect(Array.from(categorySelect.options).map((o) => o.value)).toEqual([
+      'food',
+      'transport',
+      'shopping',
+      'entertainment',
+      'health',
+      'bills',
+      'other',
+      'savings',
+      'unknown',
+    ]);
+
+    // Selecting 'savings' clears potId and forces potId=null on submit
+    fireEvent.change(categorySelect, { target: { value: 'savings' } });
+    expect(within(dialog).queryByLabelText('ก้อนเงิน')).toBeNull();
+
+    // Entering a date before latest BalanceCheck (2026-11-10) on bank shows C2 warning
+    fireEvent.change(within(dialog).getByLabelText('วันที่'), { target: { value: '2026-11-09' } });
+    expect(within(dialog).getByText('รายการนี้อยู่ก่อนเช็กยอดล่าสุด จึงไม่เปลี่ยนยอดบัญชี')).toBeTruthy();
+
+    // Switching to 'รายรับ' shows IN_CATEGORIES ('allowance', 'parttime', 'freelance', 'other', 'unknown')
+    fireEvent.click(within(within(dialog).getByRole('tablist', { name: 'ประเภท' })).getByRole('tab', { name: 'รายรับ' }));
+    const inCategorySelect = within(dialog).getByLabelText('หมวดหมู่') as HTMLSelectElement;
+    expect(Array.from(inCategorySelect.options).map((o) => o.value)).toEqual([
+      'allowance',
+      'parttime',
+      'freelance',
+      'other',
+      'unknown',
+    ]);
+    expect(inCategorySelect.value).toBe('allowance');
+    expect(within(dialog).queryByLabelText('ก้อนเงิน')).toBeNull();
+
+    fireEvent.change(within(dialog).getByLabelText('จำนวนเงิน'), { target: { value: '300' } });
+    fireEvent.change(inCategorySelect, { target: { value: 'freelance' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'บันทึก' }));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalledTimes(1));
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 30_000,
+        direction: 'in',
+        potId: null,
+        category: 'freelance',
+        date: '2026-11-09',
+      }),
+    );
+  });
 });

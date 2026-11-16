@@ -81,8 +81,24 @@ function upsertById<T extends { id: string }>(items: T[], next: T): T[] {
   return items.map((item, idx) => (idx === index ? next : item));
 }
 
+let lastFixtureTimestampMs = 0;
+
+/**
+ * Guarantees strictly monotonic ISO timestamps across sequential fixture mutations
+ * even when two actions occur within the same millisecond or under fake Date timers.
+ */
+function nextFixtureTimestampMs(): number {
+  const now = Date.now();
+  lastFixtureTimestampMs = Math.max(now, lastFixtureTimestampMs + 1);
+  return lastFixtureTimestampMs;
+}
+
+function nextFixtureISOString(): string {
+  return new Date(nextFixtureTimestampMs()).toISOString();
+}
+
 function nextFixtureId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return `${prefix}-${nextFixtureTimestampMs()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function buildFixtureTransaction(
@@ -99,7 +115,7 @@ function buildFixtureTransaction(
     potId: input.potId,
     category: input.category,
     note: input.note,
-    createdAt: input.createdAt ?? createdAt ?? new Date().toISOString(),
+    createdAt: input.createdAt ?? createdAt ?? nextFixtureISOString(),
     recurringIncomeId: input.recurringIncomeId ?? null,
     incomeDueOn: input.incomeDueOn ?? null,
   };
@@ -318,9 +334,8 @@ export function useCreateTransactions(): UseFinanceMutation<CreateTransactionsIn
         if (isFixturesMode()) {
           if (inputs.length === 0) return [];
           const current = queryClient.getQueryData<FinanceData>(FINANCE_QUERY_KEY) ?? financeFixture;
-          const nowMs = Date.now();
-          const created = inputs.map((input, idx) =>
-            buildFixtureTransaction(input, new Date(nowMs + idx).toISOString()),
+          const created = inputs.map((input) =>
+            buildFixtureTransaction(input, nextFixtureISOString()),
           );
           queryClient.setQueryData<FinanceData>(FINANCE_QUERY_KEY, {
             ...current,
@@ -416,7 +431,7 @@ export function usePayBill(): UseFinanceMutation<PayBillInput, BillPayment> {
         statementKey: input.statementKey,
         amount: input.amount,
         paidOn: input.paidOn,
-        createdAt: input.createdAt ?? new Date().toISOString(),
+        createdAt: input.createdAt ?? nextFixtureISOString(),
       };
       return {
         data: { ...current, payments: [payment, ...current.payments] },
@@ -441,7 +456,6 @@ export function useCreateBalanceCheck(): UseFinanceMutation<CreateBalanceCheckIn
     (input) => createBalanceCheck(input),
     (current, input) => {
       const checkedOn = input.checkedOn ?? todayBangkokISO();
-      const nowMs = Date.now();
       let adjustmentTx: Transaction | null = null;
 
       // SPEC §5 C2: adjustment 'unknown' tx is created BEFORE the BalanceCheck so it is never counted after the checkpoint.
@@ -456,7 +470,7 @@ export function useCreateBalanceCheck(): UseFinanceMutation<CreateBalanceCheckIn
             category: 'unknown',
             note: input.adjustment.note ?? 'ส่วนต่างเช็กยอด',
           },
-          new Date(nowMs - 1).toISOString(),
+          nextFixtureISOString(),
         );
       }
 
@@ -467,7 +481,7 @@ export function useCreateBalanceCheck(): UseFinanceMutation<CreateBalanceCheckIn
         actual: input.actual,
         expectedBefore: input.expectedBefore,
         adjustmentTxId: adjustmentTx ? adjustmentTx.id : null,
-        createdAt: new Date(nowMs).toISOString(),
+        createdAt: nextFixtureISOString(),
       };
 
       return {

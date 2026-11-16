@@ -5,10 +5,11 @@ Stack: Vite 5, React 18, TypeScript (strict), Tailwind 3, Vitest, TanStack Query
 
 Routes use `HashRouter` so no server rewrites are needed:
 
-- `/#/` — ภาพรวม (Overview: play-pot remaining balance, statement bills & upcoming outflows, quick-add transaction)
+- `/#/` — ภาพรวม (Overview: play-pot remaining balance, statement bills & upcoming outflows, hot bar, pending recurring income card, "ใช้ได้จริง" shortcut, multi-item quick-add)
+- `/#/entries` — รายการ (Entries: period transaction log + spending summary view `?view=summary` with category breakdown & 6-period trend, add/edit/delete)
+- `/#/plan` — แผน (Plan & bank reconciliation: expected bank balance `expectedBalance`, balance checks & missed-entry reconciliation, C5 "ใช้ได้จริง" breakdown, period plan items, cash-flow timeline)
 - `/#/bills` — บิล & ผ่อน (Bills & installments: unpaid statement bills, recurring subscriptions, active installments)
-- `/#/entries` — รายการ (Entries: period transaction log filtered by payment source, add/edit/delete)
-- `/#/settings` — ตั้งค่า (Settings: salary, payDay, budget start period, payment sources, budget pots, theme, sign out)
+- `/#/settings` — ตั้งค่า (Settings: salary, payDay, budget start period, recurring incomes, payment sources, budget pots, theme, sign out)
 - `/#/login` — เข้าสู่ระบบ (Email + password sign-in)
 - `/#/design` — Design system showcase (tokens, contrast ratios, every component)
 - `/#/preview-home` — Static home layout showcase with sample data
@@ -45,9 +46,9 @@ SubTracker v2 stores all data in a dedicated Supabase project protected by Row L
 2. **Configure Auth (single-user email + password)**
    - In **Authentication → Providers → Email**, disable **Confirm email** so login works without an email server.
    - Create your user account in **Authentication → Users → Add user** (email + password, auto-confirm).
-3. **Run SQL schema and seed function**
-   - Open **SQL Editor**, paste and run `supabase/schema.sql`.
-   - Next, paste and run `supabase/seed.sql` to create the idempotent `seed_defaults()` RPC (called on first login to insert default settings, 3 payment sources, and 2 budget pots).
+3. **Run SQL schema, Phase 2 migration, and seed function**
+   - **Fresh database**: Open **SQL Editor**, paste and run `supabase/schema.sql` (includes all Phase 1 + Phase 2 tables and RLS policies), then paste and run `supabase/seed.sql` to create the idempotent `seed_defaults()` RPC (called on first login to insert default settings, 3 payment sources, 2 budget pots, and 2 recurring incomes).
+   - **Existing Phase 1 / Phase 1.5 database**: Open **SQL Editor**, paste and run `supabase/migrations/2026-11-16-phase2.sql` (idempotent — safe to run multiple times; adds `recurring_incomes`, `balance_checks`, `plan_items`, expands `transactions.category`, adds `created_at` / `recurring_income_id` / `income_due_on`, and enables owner-scoped RLS policies), then re-run `supabase/seed.sql` to update `seed_defaults()`.
 4. **Local environment variables**
    - Copy `.env.example` to `.env.local` and fill in your **Project URL** (`VITE_SUPABASE_URL`) and **anon public key** (`VITE_SUPABASE_ANON_KEY`) from **Project Settings → API**.
    - To run locally with in-memory fixture data without Supabase, set `VITE_USE_FIXTURES=1`.
@@ -68,7 +69,13 @@ VITE_BASE=/Subtrackerv2/ npm run build
 The manifest `start_url`/`scope`, the service worker, the icons and the asset URLs all follow this value.
 `.github/workflows/deploy.yml` runs `typecheck`, `test:run`, `test:tz`, and `check:motion`, then builds with `VITE_BASE=/Subtrackerv2/` and deploys `dist/` to GitHub Pages on pushes to `main`.
 
-## Phase 1 / Phase 1.5 status & Phase 2 backlog
+## Phase 1 / Phase 1.5 / Phase 2 status & backlog
+
+**Phase 2 (Complete on `p2/06-integration`)**:
+- **Fast entry (`SPEC §4 โจทย์ A`)**: `CurrencyField` inline `+`/`−` arithmetic expressions (`45+60+35` → `= ฿140.00`), multi-row `QuickAddSheet` (`useCreateTransactions` atomic batch save + single-tap undo), and `HotBar` frequent-item chips (tap to save immediately with 5s undo toast; 500ms hold / right-click to prefill `QuickAddSheet`).
+- **Spending summary (`SPEC §4 โจทย์ B`)**: `/entries?view=summary` segmented view with `spendingSummary` & `spendingHistory` domain math (counting bank/card/paylater manual spend + period subscription & installment charges without double-counting bill payments; separating `savings` into `เก็บรอบนี้` and highlighting `unknown` as `ลืมจด`), pure-SVG `CategorySpendChart` & 6-period `PeriodTrendChart`, and click-to-filter navigation back to `/entries`.
+- **Bank reconciliation, Plan & Cash-flow Forecast (`SPEC §5 โจทย์ C`)**: `/plan` tab with `expectedBalance`, `BalanceCheckSheet` (match / missing-cash live reconciliation with hotbar & recent 5 bank items / surplus income), C5 `forecast` ("ใช้ได้จริง" breakdown + chronological cash-flow timeline + lowest-balance alert without double-deducting pot-linked card bills), `PlanItem` period checklist (`ต้องจ่าย` / `เก็บเงิน`, copy previous period, duplicate auto-bill warning), `RecurringIncome` settings & `IncomeDueCard` confirmation on `/`, and `AvailableCard` linking `/` to `/plan`.
+- **Database & E2E verification**: Idempotent `supabase/migrations/2026-11-16-phase2.sql` (verified with consecutive runs on PostgreSQL), full-stack 7-step "วันจริง" E2E test in `src/e2e/specFlow.test.tsx`, and 36 viewport/theme screenshots in `docs/phase2/screens/`.
 
 **Phase 1.5 (Complete on `p15/06-integration`)**:
 - Responsive navigation & multi-column layouts (`AppShell`, `SideNav` at `>=1024px`, `TabBar` at `<1024px`, `useMediaQuery` hooks in `src/hooks/useMediaQuery.ts`) across `/`, `/entries`, `/bills`, `/settings`, and `/login` (`docs/phase1_5/SPEC.md`).

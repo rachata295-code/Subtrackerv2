@@ -907,6 +907,28 @@ describe('<OverviewPage>', () => {
     }
   });
 
+  it('orders header -> IncomeDueCard -> AvailableCard -> HotBar -> pots-grid without desktop flex order inversion (SPEC §5 C6)', () => {
+    mockMatchMedia(1280);
+    renderOverview({ withShell: true });
+
+    const leftCol = screen.getByTestId('overview-left');
+    const heading = within(leftCol).getByRole('heading', { level: 1, name: 'ภาพรวม' }).closest('header')!;
+    const incomeCard = within(leftCol).getByTestId('income-due-cards');
+    const availableCard = within(leftCol).getByTestId('available-card');
+    const hotbar = within(leftCol).getByRole('region', { name: 'ทางลัดจดเร็ว' });
+    const potsGrid = within(leftCol).getByTestId('pots-grid');
+
+    // DOM order must be header -> IncomeDueCard -> AvailableCard -> HotBar -> pots-grid
+    expect(heading.compareDocumentPosition(incomeCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(incomeCard.compareDocumentPosition(availableCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(availableCard.compareDocumentPosition(hotbar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(hotbar.compareDocumentPosition(potsGrid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // HotBar must not have lg:order-none (which gave it order:0 and jumped above order-1 header on desktop)
+    expect(hotbar.className).toContain('order-1');
+    expect(hotbar.className).not.toContain('lg:order-none');
+  });
+
   it('supports per-row overrides via ตัวเลือกเพิ่ม and forces potId=null for savings/unknown (SPEC §4 B2 & §6)', async () => {
     renderOverview();
     fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการ' }));
