@@ -17,14 +17,27 @@ import { notify } from '../../components/ui/Toaster';
 import { HUE_MARK } from '../../components/ui/hue';
 import {
   useDeletePot,
+  useDeleteRecurringIncome,
   useDeleteSource,
   useFinanceData,
   useUpdateSettings,
   useUpsertPot,
+  useUpsertRecurringIncome,
   useUpsertSource,
 } from '../../hooks/useFinance';
-import type { ISODate, PaymentSource, PeriodKey, Pot, Settings, UpsertPotInput, UpsertSourceInput } from '../../types/finance';
+import type {
+  ISODate,
+  PaymentSource,
+  PeriodKey,
+  Pot,
+  RecurringIncome,
+  Settings,
+  UpsertPotInput,
+  UpsertRecurringIncomeInput,
+  UpsertSourceInput,
+} from '../../types/finance';
 import { PotSheet } from './PotSheet';
+import { RecurringIncomeSheet } from './RecurringIncomeSheet';
 import { SourceSheet } from './SourceSheet';
 import { todayBangkok } from '../entries/entriesUtils';
 import { BUDGET_START_NONE, budgetStartOptions, formatSourceSummary, parseDayOfMonth } from './settingsUtils';
@@ -147,19 +160,25 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
   const deleteSource = useDeleteSource();
   const upsertPot = useUpsertPot();
   const deletePot = useDeletePot();
+  const upsertRecurringIncome = useUpsertRecurringIncome();
+  const deleteRecurringIncome = useDeleteRecurringIncome();
 
   const [sourceSheetOpen, setSourceSheetOpen] = useState(false);
   const [editingSource, setEditingSource] = useState<PaymentSource | null>(null);
   const [potSheetOpen, setPotSheetOpen] = useState(false);
   const [editingPot, setEditingPot] = useState<Pot | null>(null);
+  const [incomeSheetOpen, setIncomeSheetOpen] = useState(false);
+  const [editingIncome, setEditingIncome] = useState<RecurringIncome | null>(null);
 
   // Track rows added/moved or removed after mount so initial paint never animates (SPEC §5).
   const [recentActiveSourceIds, setRecentActiveSourceIds] = useState<Set<string>>(() => new Set());
   const [recentArchivedSourceIds, setRecentArchivedSourceIds] = useState<Set<string>>(() => new Set());
   const [recentPotIds, setRecentPotIds] = useState<Set<string>>(() => new Set());
+  const [recentIncomeIds, setRecentIncomeIds] = useState<Set<string>>(() => new Set());
   const [leavingActiveSources, setLeavingActiveSources] = useState<LeavingEntry<PaymentSource>[]>([]);
   const [leavingArchivedSources, setLeavingArchivedSources] = useState<LeavingEntry<PaymentSource>[]>([]);
   const [leavingPots, setLeavingPots] = useState<LeavingEntry<Pot>[]>([]);
+  const [leavingIncomes, setLeavingIncomes] = useState<LeavingEntry<RecurringIncome>[]>([]);
 
   const exitTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   useEffect(() => {
@@ -276,6 +295,35 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
     }
   };
 
+  const handleSaveRecurringIncome = async (input: UpsertRecurringIncomeInput) => {
+    try {
+      const saved = await upsertRecurringIncome.mutateAsync(input);
+      if (!input.id) {
+        setRecentIncomeIds((prev) => new Set(prev).add(saved.id));
+      }
+      setIncomeSheetOpen(false);
+      notify('บันทึกเงินประจำแล้ว');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'บันทึกเงินประจำไม่สำเร็จ'));
+    }
+  };
+
+  const handleDeleteRecurringIncome = async (id: string) => {
+    const list = data?.recurringIncomes ?? [];
+    const idx = list.findIndex((r) => r.id === id);
+    const target = idx >= 0 ? list[idx] : undefined;
+    try {
+      await deleteRecurringIncome.mutateAsync(id);
+      if (target) {
+        scheduleRowExit(target, idx, setLeavingIncomes);
+      }
+      setIncomeSheetOpen(false);
+      notify('ลบเงินประจำแล้ว');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'ลบเงินประจำไม่สำเร็จ'));
+    }
+  };
+
   const handleSignOut = async () => {
     const signOutFn = onSignOut ?? auth?.signOut;
     if (!signOutFn) return;
@@ -289,6 +337,8 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
   const activeSourceRows = mergeLeavingRows(activeSources, leavingActiveSources);
   const archivedSourceRows = mergeLeavingRows(archivedSources, leavingArchivedSources);
   const potRows = mergeLeavingRows(data?.pots ?? [], leavingPots);
+  const incomeRows = mergeLeavingRows(data?.recurringIncomes ?? [], leavingIncomes);
+  const sourceNameById = new Map((data?.sources ?? []).map((s) => [s.id, s.name]));
 
   return (
     <>
@@ -311,18 +361,61 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
         </Card>
       ) : data ? (
         <div data-testid="settings-grid" className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-start">
-          <section>
-            <SectionHeader title="รายได้และรอบเงินเดือน" />
-            <div className="mt-1">
-              <SalaryForm
-                key={`${data.settings.salary}-${data.settings.payDay}-${data.settings.budgetStartPeriod ?? ''}`}
-                settings={data.settings}
-                today={today}
-                isPending={updateSettings.isPending}
-                onSave={handleSaveSalary}
+          {/* Group Salary + Recurring Income together so income settings stay paired in column 1. */}
+          <div className="space-y-5">
+            <section>
+              <SectionHeader title="รายได้และรอบเงินเดือน" />
+              <div className="mt-1">
+                <SalaryForm
+                  key={`${data.settings.salary}-${data.settings.payDay}-${data.settings.budgetStartPeriod ?? ''}`}
+                  settings={data.settings}
+                  today={today}
+                  isPending={updateSettings.isPending}
+                  onSave={handleSaveSalary}
+                />
+              </div>
+            </section>
+
+            <section data-testid="recurring-incomes-section">
+              <SectionHeader
+                title="เงินประจำ"
+                actionLabel="เพิ่มเงินประจำ"
+                onAction={() => {
+                  setEditingIncome(null);
+                  setIncomeSheetOpen(true);
+                }}
               />
-            </div>
-          </section>
+              <Card padding="none" className="mt-1 px-card py-1">
+                {incomeRows.length === 0 ? (
+                  <EmptyState message="ยังไม่มีรายการเงินประจำ" />
+                ) : (
+                  incomeRows.map(({ item: inc, leaving }) => {
+                    const bankName = sourceNameById.get(inc.sourceId) ?? 'บัญชี';
+                    const detail = `วันที่ ${inc.dayOfMonth} ของเดือน · ${bankName}${inc.active ? '' : ' · ปิดใช้งาน'}`;
+                    return (
+                      <AnimatedRow
+                        key={inc.id}
+                        entering={!leaving && recentIncomeIds.has(inc.id)}
+                        leaving={leaving}
+                        className="border-b border-rule last:border-b-0"
+                      >
+                        <ListRow
+                          title={inc.name}
+                          detail={detail}
+                          amount={inc.amount / 100}
+                          amountKind="income"
+                          onClick={() => {
+                            setEditingIncome(inc);
+                            setIncomeSheetOpen(true);
+                          }}
+                        />
+                      </AnimatedRow>
+                    );
+                  })
+                )}
+              </Card>
+            </section>
+          </div>
 
           <section>
             <SectionHeader
@@ -423,7 +516,7 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
             </Card>
           </section>
 
-          {/* Group Theme + Account together in the 4th grid cell so the 2-column desktop layout stays balanced with no trailing empty slot. */}
+          {/* Group Theme + Account together so the 2-column desktop layout stays clean. */}
           <div className="space-y-5">
             <section>
               <SectionHeader title="ธีม" />
@@ -458,6 +551,16 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
             onSave={handleSavePot}
             onDelete={handleDeletePot}
             isSubmitting={upsertPot.isPending || deletePot.isPending}
+          />
+
+          <RecurringIncomeSheet
+            open={incomeSheetOpen}
+            onOpenChange={setIncomeSheetOpen}
+            data={data}
+            editing={editingIncome}
+            onSave={handleSaveRecurringIncome}
+            onDelete={handleDeleteRecurringIncome}
+            isSubmitting={upsertRecurringIncome.isPending || deleteRecurringIncome.isPending}
           />
         </div>
       ) : null}

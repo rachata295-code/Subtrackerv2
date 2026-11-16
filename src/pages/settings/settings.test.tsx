@@ -12,9 +12,11 @@ import type {
   FinanceData,
   PaymentSource,
   Pot,
+  RecurringIncome,
   Settings,
   UpdateSettingsInput,
   UpsertPotInput,
+  UpsertRecurringIncomeInput,
   UpsertSourceInput,
 } from '../../types/finance';
 
@@ -40,6 +42,8 @@ const upsertSourceSpy = vi.fn<(input: UpsertSourceInput) => Promise<PaymentSourc
 const deleteSourceSpy = vi.fn<(id: string) => Promise<void>>();
 const upsertPotSpy = vi.fn<(input: UpsertPotInput) => Promise<Pot>>();
 const deletePotSpy = vi.fn<(id: string) => Promise<void>>();
+const upsertRecurringIncomeSpy = vi.fn<(input: UpsertRecurringIncomeInput) => Promise<RecurringIncome>>();
+const deleteRecurringIncomeSpy = vi.fn<(id: string) => Promise<void>>();
 
 vi.mock('../../hooks/useFinance', () => ({
   useFinanceData: () => ({ data: mockData, isLoading: false, error: null }),
@@ -83,6 +87,22 @@ vi.mock('../../hooks/useFinance', () => ({
     isPending: false,
     error: null,
   }),
+  useUpsertRecurringIncome: () => ({
+    mutate: (input: UpsertRecurringIncomeInput) => {
+      void upsertRecurringIncomeSpy(input);
+    },
+    mutateAsync: upsertRecurringIncomeSpy,
+    isPending: false,
+    error: null,
+  }),
+  useDeleteRecurringIncome: () => ({
+    mutate: (id: string) => {
+      void deleteRecurringIncomeSpy(id);
+    },
+    mutateAsync: deleteRecurringIncomeSpy,
+    isPending: false,
+    error: null,
+  }),
 }));
 
 import SettingsPage from './index';
@@ -116,6 +136,7 @@ function makeFixtureClone(extraSources: PaymentSource[] = []): FinanceData {
     installments: financeFixture.installments.map((i) => ({ ...i })),
     transactions: financeFixture.transactions.map((t) => ({ ...t })),
     payments: financeFixture.payments.map((p) => ({ ...p })),
+    recurringIncomes: financeFixture.recurringIncomes.map((r) => ({ ...r })),
   };
 }
 
@@ -159,6 +180,21 @@ beforeEach(() => {
     setStateHook?.({
       ...mockData,
       pots: mockData.pots.filter((p) => p.id !== id),
+    });
+  });
+  upsertRecurringIncomeSpy.mockReset().mockImplementation(async (input) => {
+    const saved: RecurringIncome = { id: input.id ?? `inc-new-${nextId++}`, ...input };
+    const exists = mockData.recurringIncomes.some((r) => r.id === saved.id);
+    const nextRecurring = exists
+      ? mockData.recurringIncomes.map((r) => (r.id === saved.id ? saved : r))
+      : [...mockData.recurringIncomes, saved];
+    setStateHook?.({ ...mockData, recurringIncomes: nextRecurring });
+    return saved;
+  });
+  deleteRecurringIncomeSpy.mockReset().mockImplementation(async (id) => {
+    setStateHook?.({
+      ...mockData,
+      recurringIncomes: mockData.recurringIncomes.filter((r) => r.id !== id),
     });
   });
 });
@@ -682,5 +718,78 @@ describe('<SettingsPage>', () => {
     const potDelErr = await screen.findByText('ลบก้อนเงินไม่สำเร็จ');
     expect(potDelErr.closest('[data-sonner-toast]')?.getAttribute('data-type')).toBe('error');
     expect(screen.getByText('ก้อนสำรอง').closest('.row-exit')).toBeNull();
+  });
+
+  it('adds, edits, and deletes recurring incomes in "เงินประจำ" with validation and error toast', async () => {
+    render(<StatefulHarness initial={makeFixtureClone()} />);
+
+    const section = screen.getByTestId('recurring-incomes-section');
+    expect(within(section).getAllByText('เงินจากแม่')).toHaveLength(2);
+    expect(within(section).getByText('วันที่ 10 ของเดือน · บัญชี')).toBeTruthy();
+    expect(within(section).getByText('วันที่ 24 ของเดือน · บัญชี')).toBeTruthy();
+
+    // Open add sheet and trigger validation first
+    fireEvent.click(within(section).getByRole('button', { name: 'เพิ่มเงินประจำ' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'บันทึก' }));
+    expect(within(dialog).getByText('กรอกชื่อรายการ')).toBeTruthy();
+    expect(within(dialog).getByText('กรอกจำนวนเงินให้ถูกต้อง')).toBeTruthy();
+    expect(within(dialog).getByText('กรุณาระบุวันที่ 1–31')).toBeTruthy();
+    expect(upsertRecurringIncomeSpy).not.toHaveBeenCalled();
+
+    // Fill valid values and save
+    fireEvent.change(within(dialog).getByLabelText('ชื่อรายการ'), { target: { value: 'ค่าจ้างพิเศษ' } });
+    fireEvent.change(within(dialog).getByLabelText('จำนวนเงิน'), { target: { value: '3500' } });
+    fireEvent.change(within(dialog).getByLabelText('วันที่เข้าของเดือน (1–31)'), { target: { value: '15' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'บันทึก' }));
+
+    await waitFor(() => expect(upsertRecurringIncomeSpy).toHaveBeenCalledTimes(1));
+    expect(upsertRecurringIncomeSpy).toHaveBeenCalledWith({
+      name: 'ค่าจ้างพิเศษ',
+      amount: 350_000,
+      dayOfMonth: 15,
+      sourceId: 'src-bank',
+      active: true,
+    });
+    expect(await within(section).findByText('ค่าจ้างพิเศษ')).toBeTruthy();
+
+    // Edit existing item
+    fireEvent.click(within(section).getByText('ค่าจ้างพิเศษ'));
+    const editDialog = screen.getByRole('dialog');
+    fireEvent.change(within(editDialog).getByLabelText('วันที่เข้าของเดือน (1–31)'), { target: { value: '20' } });
+    fireEvent.click(within(editDialog).getByRole('button', { name: 'บันทึก' }));
+
+    await waitFor(() => expect(upsertRecurringIncomeSpy).toHaveBeenCalledTimes(2));
+    expect(upsertRecurringIncomeSpy).toHaveBeenLastCalledWith({
+      id: 'inc-new-1',
+      name: 'ค่าจ้างพิเศษ',
+      amount: 350_000,
+      dayOfMonth: 20,
+      sourceId: 'src-bank',
+      active: true,
+    });
+    expect(await within(section).findByText('วันที่ 20 ของเดือน · บัญชี')).toBeTruthy();
+
+    // Error toast shows Thai error message on delete failure
+    deleteRecurringIncomeSpy.mockRejectedValueOnce('unknown error');
+    fireEvent.click(within(section).getByText('ค่าจ้างพิเศษ'));
+    const deleteDialog = screen.getByRole('dialog');
+    vi.useFakeTimers();
+    fireEvent.pointerDown(within(deleteDialog).getByRole('button', { name: 'กดค้างเพื่อลบ' }));
+    act(() => {
+      vi.advanceTimersByTime(HOLD_MS);
+    });
+    vi.useRealTimers();
+    const errToast = await screen.findByText('ลบเงินประจำไม่สำเร็จ');
+    expect(errToast.closest('[data-sonner-toast]')?.getAttribute('data-type')).toBe('error');
+
+    // Successful hold-to-delete
+    vi.useFakeTimers();
+    fireEvent.pointerDown(within(screen.getByRole('dialog')).getByRole('button', { name: 'กดค้างเพื่อลบ' }));
+    act(() => {
+      vi.advanceTimersByTime(HOLD_MS);
+    });
+    vi.useRealTimers();
+    await waitFor(() => expect(deleteRecurringIncomeSpy).toHaveBeenCalledWith('inc-new-1'));
   });
 });
