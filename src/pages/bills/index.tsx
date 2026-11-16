@@ -1,12 +1,20 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { IconButton } from '../../components/ui/IconButton';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { Skeleton } from '../../components/ui/Skeleton';
-import { useFinanceData } from '../../hooks/useFinance';
+import { notify } from '../../components/ui/Toaster';
+import {
+  useDeleteInstallment,
+  useDeleteSubscription,
+  useFinanceData,
+  useUpsertInstallment,
+  useUpsertSubscription,
+} from '../../hooks/useFinance';
 import type { ISODate, Installment, Subscription } from '../../types/finance';
 import { BillsSummaryCard } from './BillsSummaryCard';
 import { BillsTab } from './BillsTab';
@@ -14,7 +22,7 @@ import { InstallmentSheet } from './InstallmentSheet';
 import { InstallmentsTab } from './InstallmentsTab';
 import { SubscriptionSheet } from './SubscriptionSheet';
 import { SubscriptionsTab } from './SubscriptionsTab';
-import { todayBangkok } from './billsLogic';
+import { formatRepoError, todayBangkok } from './billsLogic';
 
 type BillsSegment = 'bills' | 'installments' | 'subscriptions';
 
@@ -31,11 +39,57 @@ export interface BillsPageProps {
 
 export default function BillsPage({ today = todayBangkok() }: BillsPageProps) {
   const { data, isLoading, error, refetch } = useFinanceData();
+  const upsertInstallment = useUpsertInstallment();
+  const deleteInstallment = useDeleteInstallment();
+  const upsertSubscription = useUpsertSubscription();
+  const deleteSubscription = useDeleteSubscription();
   const [segment, setSegment] = useState<BillsSegment>('bills');
   const [instSheetOpen, setInstSheetOpen] = useState(false);
   const [editingInst, setEditingInst] = useState<Installment | undefined>(undefined);
   const [subSheetOpen, setSubSheetOpen] = useState(false);
   const [editingSub, setEditingSub] = useState<Subscription | undefined>(undefined);
+
+  const handleDeleteInstallment = async (inst: Installment): Promise<boolean> => {
+    const { id: _id, ...snapshot } = inst;
+    try {
+      await deleteInstallment.mutateAsync(inst.id);
+    } catch (err) {
+      toast.error(formatRepoError('ลบไม่สำเร็จ', err, 'ลบไม่สำเร็จ กรุณาลองใหม่'));
+      return false;
+    }
+    let undone = false;
+    notify(`ลบ${inst.name}แล้ว`, {
+      undo: () => {
+        if (undone) return;
+        undone = true;
+        void upsertInstallment.mutateAsync(snapshot).catch((err) => {
+          toast.error(formatRepoError('เลิกทำไม่สำเร็จ', err, 'เลิกทำไม่สำเร็จ'));
+        });
+      },
+    });
+    return true;
+  };
+
+  const handleDeleteSubscription = async (sub: Subscription): Promise<boolean> => {
+    const { id: _id, ...snapshot } = sub;
+    try {
+      await deleteSubscription.mutateAsync(sub.id);
+    } catch (err) {
+      toast.error(formatRepoError('ลบไม่สำเร็จ', err, 'ลบไม่สำเร็จ กรุณาลองใหม่'));
+      return false;
+    }
+    let undone = false;
+    notify(`ลบ${sub.name}แล้ว`, {
+      undo: () => {
+        if (undone) return;
+        undone = true;
+        void upsertSubscription.mutateAsync(snapshot).catch((err) => {
+          toast.error(formatRepoError('เลิกทำไม่สำเร็จ', err, 'เลิกทำไม่สำเร็จ'));
+        });
+      },
+    });
+    return true;
+  };
 
   const openAddInstallment = () => {
     setEditingInst(undefined);
@@ -128,9 +182,18 @@ export default function BillsPage({ today = todayBangkok() }: BillsPageProps) {
               {segment === 'bills' ? (
                 <BillsTab data={data} today={today} />
               ) : segment === 'installments' ? (
-                <InstallmentsTab data={data} today={today} onEdit={openEditInstallment} />
+                <InstallmentsTab
+                  data={data}
+                  today={today}
+                  onEdit={openEditInstallment}
+                  onDelete={handleDeleteInstallment}
+                />
               ) : (
-                <SubscriptionsTab data={data} onEdit={openEditSubscription} />
+                <SubscriptionsTab
+                  data={data}
+                  onEdit={openEditSubscription}
+                  onDelete={handleDeleteSubscription}
+                />
               )}
             </div>
           </div>

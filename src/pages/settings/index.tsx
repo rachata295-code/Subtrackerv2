@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
+import { Navigate, useInRouterContext } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useOptionalAuth } from '../../auth';
 import { ThemeSwitch } from '../../components/ThemeSwitch';
@@ -12,6 +13,7 @@ import { Pill } from '../../components/ui/Pill';
 import { SectionHeader } from '../../components/ui/SectionHeader';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { SelectField } from '../../components/ui/SelectField';
+import { SwipeToDelete } from '../../components/ui/SwipeToDelete';
 import { TextField } from '../../components/ui/TextField';
 import { notify } from '../../components/ui/Toaster';
 import { HUE_MARK } from '../../components/ui/hue';
@@ -26,6 +28,7 @@ import {
   useUpsertSource,
 } from '../../hooks/useFinance';
 import type {
+  FinanceData,
   ISODate,
   PaymentSource,
   PeriodKey,
@@ -36,11 +39,19 @@ import type {
   UpsertRecurringIncomeInput,
   UpsertSourceInput,
 } from '../../types/finance';
+import { ClearDataSheet } from './ClearDataSheet';
 import { PotSheet } from './PotSheet';
 import { RecurringIncomeSheet } from './RecurringIncomeSheet';
 import { SourceSheet } from './SourceSheet';
 import { todayBangkok } from '../entries/entriesUtils';
-import { BUDGET_START_NONE, budgetStartOptions, formatSourceSummary, parseDayOfMonth } from './settingsUtils';
+import {
+  BUDGET_START_NONE,
+  budgetStartOptions,
+  formatSourceSummary,
+  hasLinkedPotRecords,
+  hasLinkedRecords,
+  parseDayOfMonth,
+} from './settingsUtils';
 
 export interface SettingsPageProps {
   /** Optional signOut override for isolated tests; defaults to AuthProvider's signOut. */
@@ -154,6 +165,7 @@ function mergeLeavingRows<T extends { id: string }>(
 export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPageProps) {
   const today = todayProp ?? todayBangkok();
   const auth = useOptionalAuth();
+  const inRouter = useInRouterContext();
   const { data, isLoading, error, refetch } = useFinanceData();
   const updateSettings = useUpdateSettings();
   const upsertSource = useUpsertSource();
@@ -169,6 +181,8 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
   const [editingPot, setEditingPot] = useState<Pot | null>(null);
   const [incomeSheetOpen, setIncomeSheetOpen] = useState(false);
   const [editingIncome, setEditingIncome] = useState<RecurringIncome | null>(null);
+  const [clearSheetOpen, setClearSheetOpen] = useState(false);
+  const [redirectOverview, setRedirectOverview] = useState(false);
 
   // Track rows added/moved or removed after mount so initial paint never animates (SPEC §5).
   const [recentActiveSourceIds, setRecentActiveSourceIds] = useState<Set<string>>(() => new Set());
@@ -247,10 +261,31 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
     }
   };
 
-  const handleDeleteSource = async (sourceId: string) => {
+  const isSourceLinked = (sourceId: string, finance: FinanceData): boolean =>
+    hasLinkedRecords(sourceId, finance) ||
+    finance.planItems.some((p) => p.sourceId === sourceId) ||
+    finance.recurringIncomes.some((r) => r.sourceId === sourceId);
+
+  const handleDeleteSource = async (sourceId: string, toastMessage?: string): Promise<boolean> => {
+    if (data && isSourceLinked(sourceId, data)) {
+      toast.error('ช่องทางนี้มีรายการผูกอยู่ จึงเก็บถาวรแทนการลบ');
+      return false;
+    }
     const activeIdx = activeSources.findIndex((s) => s.id === sourceId);
     const archivedIdx = archivedSources.findIndex((s) => s.id === sourceId);
     const target = activeIdx >= 0 ? activeSources[activeIdx] : archivedIdx >= 0 ? archivedSources[archivedIdx] : undefined;
+    const snapshot: UpsertSourceInput | null = target
+      ? {
+          name: target.name,
+          kind: target.kind,
+          hue: target.hue,
+          archived: target.archived,
+          statementCloseDay: target.statementCloseDay,
+          dueDay: target.dueDay,
+          dueMonthOffset: target.dueMonthOffset,
+          payFromSourceId: target.payFromSourceId,
+        }
+      : null;
     try {
       await deleteSource.mutateAsync(sourceId);
       if (target) {
@@ -261,9 +296,31 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
         }
       }
       setSourceSheetOpen(false);
-      notify('ลบช่องทางแล้ว');
+      let undone = false;
+      notify(toastMessage ?? 'ลบช่องทางแล้ว', {
+        undo: snapshot
+          ? () => {
+              if (undone) return;
+              undone = true;
+              void upsertSource
+                .mutateAsync(snapshot)
+                .then((restored) => {
+                  if (restored.archived) {
+                    setRecentArchivedSourceIds((prev) => new Set(prev).add(restored.id));
+                  } else {
+                    setRecentActiveSourceIds((prev) => new Set(prev).add(restored.id));
+                  }
+                })
+                .catch((err) => {
+                  toast.error(getErrorMessage(err, 'เลิกทำไม่สำเร็จ'));
+                });
+            }
+          : undefined,
+      });
+      return true;
     } catch (err) {
       toast.error(getErrorMessage(err, 'ลบช่องทางจ่ายไม่สำเร็จ'));
+      return false;
     }
   };
 
@@ -280,18 +337,48 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
     }
   };
 
-  const handleDeletePot = async (potId: string) => {
+  const handleDeletePot = async (potId: string, toastMessage?: string): Promise<boolean> => {
+    if (data && hasLinkedPotRecords(potId, data)) {
+      toast.error('ก้อนเงินนี้มีรายการผูกอยู่ ไม่สามารถลบได้');
+      return false;
+    }
     const potIdx = (data?.pots ?? []).findIndex((p) => p.id === potId);
     const target = potIdx >= 0 ? data?.pots[potIdx] : undefined;
+    const snapshot: UpsertPotInput | null = target
+      ? {
+          name: target.name,
+          perPeriod: target.perPeriod,
+          rollover: target.rollover,
+          hue: target.hue,
+        }
+      : null;
     try {
       await deletePot.mutateAsync(potId);
       if (target) {
         scheduleRowExit(target, potIdx, setLeavingPots);
       }
       setPotSheetOpen(false);
-      notify('ลบก้อนเงินแล้ว');
+      let undone = false;
+      notify(toastMessage ?? 'ลบก้อนเงินแล้ว', {
+        undo: snapshot
+          ? () => {
+              if (undone) return;
+              undone = true;
+              void upsertPot
+                .mutateAsync(snapshot)
+                .then((restored) => {
+                  setRecentPotIds((prev) => new Set(prev).add(restored.id));
+                })
+                .catch((err) => {
+                  toast.error(getErrorMessage(err, 'เลิกทำไม่สำเร็จ'));
+                });
+            }
+          : undefined,
+      });
+      return true;
     } catch (err) {
       toast.error(getErrorMessage(err, 'ลบก้อนเงินไม่สำเร็จ'));
+      return false;
     }
   };
 
@@ -308,19 +395,46 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
     }
   };
 
-  const handleDeleteRecurringIncome = async (id: string) => {
+  const handleDeleteRecurringIncome = async (id: string, toastMessage?: string): Promise<boolean> => {
     const list = data?.recurringIncomes ?? [];
     const idx = list.findIndex((r) => r.id === id);
     const target = idx >= 0 ? list[idx] : undefined;
+    const snapshot: UpsertRecurringIncomeInput | null = target
+      ? {
+          name: target.name,
+          amount: target.amount,
+          dayOfMonth: target.dayOfMonth,
+          sourceId: target.sourceId,
+          active: target.active,
+        }
+      : null;
     try {
       await deleteRecurringIncome.mutateAsync(id);
       if (target) {
         scheduleRowExit(target, idx, setLeavingIncomes);
       }
       setIncomeSheetOpen(false);
-      notify('ลบเงินประจำแล้ว');
+      let undone = false;
+      notify(toastMessage ?? 'ลบเงินประจำแล้ว', {
+        undo: snapshot
+          ? () => {
+              if (undone) return;
+              undone = true;
+              void upsertRecurringIncome
+                .mutateAsync(snapshot)
+                .then((restored) => {
+                  setRecentIncomeIds((prev) => new Set(prev).add(restored.id));
+                })
+                .catch((err) => {
+                  toast.error(getErrorMessage(err, 'เลิกทำไม่สำเร็จ'));
+                });
+            }
+          : undefined,
+      });
+      return true;
     } catch (err) {
       toast.error(getErrorMessage(err, 'ลบเงินประจำไม่สำเร็จ'));
+      return false;
     }
   };
 
@@ -360,6 +474,7 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
           ) : null}
         </Card>
       ) : data ? (
+        <>
         <div data-testid="settings-grid" className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-start">
           {/* Group Salary + Recurring Income together so income settings stay paired in column 1. */}
           <div className="space-y-5">
@@ -399,16 +514,22 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
                         leaving={leaving}
                         className="border-b border-rule last:border-b-0"
                       >
-                        <ListRow
-                          title={inc.name}
-                          detail={detail}
-                          amount={inc.amount / 100}
-                          amountKind="income"
-                          onClick={() => {
-                            setEditingIncome(inc);
-                            setIncomeSheetOpen(true);
-                          }}
-                        />
+                        <SwipeToDelete
+                          label={inc.name}
+                          disabled={leaving}
+                          onDelete={() => handleDeleteRecurringIncome(inc.id, `ลบ${inc.name}แล้ว`)}
+                        >
+                          <ListRow
+                            title={inc.name}
+                            detail={detail}
+                            amount={inc.amount / 100}
+                            amountKind="income"
+                            onClick={() => {
+                              setEditingIncome(inc);
+                              setIncomeSheetOpen(true);
+                            }}
+                          />
+                        </SwipeToDelete>
                       </AnimatedRow>
                     );
                   })
@@ -437,16 +558,22 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
                     leaving={leaving}
                     className="border-b border-rule last:border-b-0"
                   >
-                    <ListRow
-                      leading={<span aria-hidden="true" className={`block h-2.5 w-2.5 rounded-dot ${HUE_MARK[src.hue]}`} />}
-                      title={src.name}
-                      detail={formatSourceSummary(src, data.sources)}
-                      amount={null}
-                      onClick={() => {
-                        setEditingSource(src);
-                        setSourceSheetOpen(true);
-                      }}
-                    />
+                    <SwipeToDelete
+                      label={src.name}
+                      disabled={leaving}
+                      onDelete={() => handleDeleteSource(src.id, `ลบ${src.name}แล้ว`)}
+                    >
+                      <ListRow
+                        leading={<span aria-hidden="true" className={`block h-2.5 w-2.5 rounded-dot ${HUE_MARK[src.hue]}`} />}
+                        title={src.name}
+                        detail={formatSourceSummary(src, data.sources)}
+                        amount={null}
+                        onClick={() => {
+                          setEditingSource(src);
+                          setSourceSheetOpen(true);
+                        }}
+                      />
+                    </SwipeToDelete>
                   </AnimatedRow>
                 ))
               )}
@@ -463,16 +590,22 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
                       leaving={leaving}
                       className="border-b border-rule last:border-b-0"
                     >
-                      <ListRow
-                        leading={<Pill hue={src.hue}>เก็บถาวร</Pill>}
-                        title={src.name}
-                        detail={formatSourceSummary(src, data.sources)}
-                        amount={null}
-                        onClick={() => {
-                          setEditingSource(src);
-                          setSourceSheetOpen(true);
-                        }}
-                      />
+                      <SwipeToDelete
+                        label={src.name}
+                        disabled={leaving}
+                        onDelete={() => handleDeleteSource(src.id, `ลบ${src.name}แล้ว`)}
+                      >
+                        <ListRow
+                          leading={<Pill hue={src.hue}>เก็บถาวร</Pill>}
+                          title={src.name}
+                          detail={formatSourceSummary(src, data.sources)}
+                          amount={null}
+                          onClick={() => {
+                            setEditingSource(src);
+                            setSourceSheetOpen(true);
+                          }}
+                        />
+                      </SwipeToDelete>
                     </AnimatedRow>
                   ))}
                 </Card>
@@ -500,16 +633,22 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
                     leaving={leaving}
                     className="border-b border-rule last:border-b-0"
                   >
-                    <ListRow
-                      leading={<span aria-hidden="true" className={`block h-2.5 w-2.5 rounded-dot ${HUE_MARK[pot.hue]}`} />}
-                      title={pot.name}
-                      detail={pot.rollover ? 'ยกยอดคงเหลือไปรอบถัดไป' : 'ไม่ยกยอด'}
-                      amount={pot.perPeriod / 100}
-                      onClick={() => {
-                        setEditingPot(pot);
-                        setPotSheetOpen(true);
-                      }}
-                    />
+                    <SwipeToDelete
+                      label={pot.name}
+                      disabled={leaving}
+                      onDelete={() => handleDeletePot(pot.id, `ลบ${pot.name}แล้ว`)}
+                    >
+                      <ListRow
+                        leading={<span aria-hidden="true" className={`block h-2.5 w-2.5 rounded-dot ${HUE_MARK[pot.hue]}`} />}
+                        title={pot.name}
+                        detail={pot.rollover ? 'ยกยอดคงเหลือไปรอบถัดไป' : 'ไม่ยกยอด'}
+                        amount={pot.perPeriod / 100}
+                        onClick={() => {
+                          setEditingPot(pot);
+                          setPotSheetOpen(true);
+                        }}
+                      />
+                    </SwipeToDelete>
                   </AnimatedRow>
                 ))
               )}
@@ -539,7 +678,7 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
             editing={editingSource}
             onSave={handleSaveSource}
             onArchiveToggle={handleArchiveToggleSource}
-            onDelete={handleDeleteSource}
+            onDelete={(id) => handleDeleteSource(id).then(() => undefined)}
             isSubmitting={upsertSource.isPending || deleteSource.isPending}
           />
 
@@ -549,7 +688,7 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
             data={data}
             editing={editingPot}
             onSave={handleSavePot}
-            onDelete={handleDeletePot}
+            onDelete={(id) => handleDeletePot(id).then(() => undefined)}
             isSubmitting={upsertPot.isPending || deletePot.isPending}
           />
 
@@ -559,10 +698,42 @@ export default function SettingsPage({ onSignOut, today: todayProp }: SettingsPa
             data={data}
             editing={editingIncome}
             onSave={handleSaveRecurringIncome}
-            onDelete={handleDeleteRecurringIncome}
+            onDelete={(id) => handleDeleteRecurringIncome(id).then(() => undefined)}
             isSubmitting={upsertRecurringIncome.isPending || deleteRecurringIncome.isPending}
           />
         </div>
+
+        <section data-testid="danger-zone" className="mt-8 border-t border-rule pt-6">
+          <SectionHeader title="โซนอันตราย" />
+          <Card className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-base font-medium text-text">ล้างข้อมูลทั้งหมด</p>
+              <p className="text-sm text-muted">
+                ลบประวัติรายการ บิล เช็กยอด แผน สมาชิก และรายการผ่อนทั้งหมด (กู้คืนไม่ได้)
+              </p>
+            </div>
+            <Button
+              variant="danger"
+              size="lg"
+              className="w-full shrink-0 sm:w-auto"
+              onClick={() => setClearSheetOpen(true)}
+            >
+              ล้างข้อมูลทั้งหมด
+            </Button>
+          </Card>
+        </section>
+
+        <ClearDataSheet
+          open={clearSheetOpen}
+          onOpenChange={setClearSheetOpen}
+          data={data}
+          onCleared={() => {
+            setClearSheetOpen(false);
+            setRedirectOverview(true);
+          }}
+        />
+        {redirectOverview && inRouter ? <Navigate to="/" replace /> : null}
+        </>
       ) : null}
     </>
   );

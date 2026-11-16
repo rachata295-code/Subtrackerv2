@@ -634,4 +634,33 @@ describe('<PlanPage>', () => {
     fireEvent.click(within(selector).getByRole('tab', { name: 'กสิกร' }));
     expect(screen.getByTestId('account-balance-card').textContent).toContain('฿9,000.00');
   });
+
+  it('supports swipe-to-delete on PlanItem rows with undo toast', async () => {
+    class JsdomPointerEvent extends MouseEvent {
+      pointerId: number;
+      pointerType: string;
+      constructor(type: string, params: PointerEventInit = {}) {
+        super(type, params);
+        this.pointerId = params.pointerId ?? 1;
+        this.pointerType = params.pointerType ?? '';
+      }
+    }
+    vi.stubGlobal('PointerEvent', JsdomPointerEvent);
+
+    render(<StatefulPlanHarness initial={cloneFixture()} />);
+    const planSection = screen.getByTestId('plan-items-section');
+    const dormTrack = within(planSection).getByText('ค่าหอ').closest('[data-testid="swipe-track"]') as HTMLElement;
+
+    fireEvent.pointerDown(dormTrack, { pointerId: 1, clientX: 300, clientY: 20, pointerType: 'touch' });
+    fireEvent.pointerMove(dormTrack, { pointerId: 1, clientX: 80, clientY: 20, pointerType: 'touch' });
+    fireEvent.pointerUp(dormTrack, { pointerId: 1, clientX: 80, clientY: 20, pointerType: 'touch' });
+
+    await waitFor(() => expect(deletePlanItemSpy).toHaveBeenCalledWith('plan-dorm'));
+    const toastMsg = await screen.findByText('ลบค่าหอแล้ว');
+    const toastEl = toastMsg.closest('li') ?? toastMsg.parentElement!.parentElement!;
+    fireEvent.click(within(toastEl).getByRole('button', { name: 'เลิกทำ' }));
+
+    await waitFor(() => expect(upsertPlanItemSpy).toHaveBeenCalled());
+    expect(await within(planSection).findByText('ค่าหอ')).toBeTruthy();
+  });
 });

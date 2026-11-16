@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { toast } from 'sonner';
 import { financeFixture } from '../../fixtures/finance';
 import { AppShell } from '../../components/layout/AppShell';
@@ -44,6 +44,7 @@ const upsertPotSpy = vi.fn<(input: UpsertPotInput) => Promise<Pot>>();
 const deletePotSpy = vi.fn<(id: string) => Promise<void>>();
 const upsertRecurringIncomeSpy = vi.fn<(input: UpsertRecurringIncomeInput) => Promise<RecurringIncome>>();
 const deleteRecurringIncomeSpy = vi.fn<(id: string) => Promise<void>>();
+const clearAllDataSpy = vi.fn<(input: { includeSetup: boolean }) => Promise<void>>();
 
 vi.mock('../../hooks/useFinance', () => ({
   useFinanceData: () => ({ data: mockData, isLoading: false, error: null }),
@@ -100,6 +101,14 @@ vi.mock('../../hooks/useFinance', () => ({
       void deleteRecurringIncomeSpy(id);
     },
     mutateAsync: deleteRecurringIncomeSpy,
+    isPending: false,
+    error: null,
+  }),
+  useClearAllData: () => ({
+    mutate: (input: { includeSetup: boolean }) => {
+      void clearAllDataSpy(input);
+    },
+    mutateAsync: clearAllDataSpy,
     isPending: false,
     error: null,
   }),
@@ -196,6 +205,32 @@ beforeEach(() => {
       ...mockData,
       recurringIncomes: mockData.recurringIncomes.filter((r) => r.id !== id),
     });
+  });
+  clearAllDataSpy.mockReset().mockImplementation(async ({ includeSetup }) => {
+    setStateHook?.(
+      includeSetup
+        ? {
+            settings: { userId: mockData.settings.userId, salary: 1_020_000, payDay: 10, budgetStartPeriod: null },
+            sources: financeFixture.sources.map((s) => ({ ...s })),
+            pots: financeFixture.pots.map((p) => ({ ...p })),
+            subscriptions: [],
+            installments: [],
+            transactions: [],
+            payments: [],
+            balanceChecks: [],
+            planItems: [],
+            recurringIncomes: [],
+          }
+        : {
+            ...mockData,
+            subscriptions: [],
+            installments: [],
+            transactions: [],
+            payments: [],
+            balanceChecks: [],
+            planItems: [],
+          },
+    );
   });
 });
 
@@ -791,5 +826,173 @@ describe('<SettingsPage>', () => {
     });
     vi.useRealTimers();
     await waitFor(() => expect(deleteRecurringIncomeSpy).toHaveBeenCalledWith('inc-new-1'));
+  });
+
+  it('supports swipe-to-delete with undo on unlinked source/pot/income and blocks linked source/pot with toast error', async () => {
+    class JsdomPointerEvent extends MouseEvent {
+      pointerId: number;
+      pointerType: string;
+      constructor(type: string, params: PointerEventInit = {}) {
+        super(type, params);
+        this.pointerId = params.pointerId ?? 1;
+        this.pointerType = params.pointerType ?? '';
+      }
+    }
+    vi.stubGlobal('PointerEvent', JsdomPointerEvent);
+
+    const extraSource: PaymentSource = {
+      id: 'src-unused',
+      name: 'บัญชีสำรอง',
+      kind: 'bank',
+      hue: 'lilac',
+      archived: false,
+      statementCloseDay: null,
+      dueDay: null,
+      dueMonthOffset: null,
+      payFromSourceId: null,
+    };
+    const initial = makeFixtureClone([extraSource]);
+    initial.pots.push({
+      id: 'pot-unused',
+      name: 'ก้อนสำรอง',
+      perPeriod: 50_000,
+      rollover: false,
+      hue: 'rose',
+    });
+
+    render(<StatefulHarness initial={initial} />);
+
+    // 1. Swiping linked source ("บัตรเครดิต") shows error toast, does NOT call deleteSource, and bounces back
+    const cardTrack = screen.getByText('บัตรเครดิต').closest('[data-testid="swipe-track"]') as HTMLElement;
+    fireEvent.pointerDown(cardTrack, { pointerId: 1, clientX: 300, clientY: 20, pointerType: 'touch' });
+    fireEvent.pointerMove(cardTrack, { pointerId: 1, clientX: 80, clientY: 20, pointerType: 'touch' });
+    await act(async () => {
+      fireEvent.pointerUp(cardTrack, { pointerId: 1, clientX: 80, clientY: 20, pointerType: 'touch' });
+    });
+    expect(deleteSourceSpy).not.toHaveBeenCalled();
+    expect(await screen.findByText('ช่องทางนี้มีรายการผูกอยู่ จึงเก็บถาวรแทนการลบ')).toBeTruthy();
+    expect(cardTrack.style.transform).toContain('translate3d(0px');
+
+    // 2. Swiping linked pot ("ใช้ตามใจ") shows error toast and bounces back
+    const playTrack = screen.getByText('ใช้ตามใจ').closest('[data-testid="swipe-track"]') as HTMLElement;
+    fireEvent.pointerDown(playTrack, { pointerId: 2, clientX: 300, clientY: 20, pointerType: 'touch' });
+    fireEvent.pointerMove(playTrack, { pointerId: 2, clientX: 80, clientY: 20, pointerType: 'touch' });
+    await act(async () => {
+      fireEvent.pointerUp(playTrack, { pointerId: 2, clientX: 80, clientY: 20, pointerType: 'touch' });
+    });
+    expect(deletePotSpy).not.toHaveBeenCalled();
+    expect(await screen.findByText('ก้อนเงินนี้มีรายการผูกอยู่ ไม่สามารถลบได้')).toBeTruthy();
+    expect(playTrack.style.transform).toContain('translate3d(0px');
+
+    // 3. Swiping unlinked source deletes + offers undo
+    const unusedSrcTrack = screen.getByText('บัญชีสำรอง').closest('[data-testid="swipe-track"]') as HTMLElement;
+    fireEvent.pointerDown(unusedSrcTrack, { pointerId: 3, clientX: 300, clientY: 20, pointerType: 'touch' });
+    fireEvent.pointerMove(unusedSrcTrack, { pointerId: 3, clientX: 80, clientY: 20, pointerType: 'touch' });
+    fireEvent.pointerUp(unusedSrcTrack, { pointerId: 3, clientX: 80, clientY: 20, pointerType: 'touch' });
+    await waitFor(() => expect(deleteSourceSpy).toHaveBeenCalledWith('src-unused'));
+    const srcToast = await screen.findByText('ลบบัญชีสำรองแล้ว');
+    fireEvent.click(within(srcToast.closest('li') ?? srcToast.parentElement!.parentElement!).getByRole('button', { name: 'เลิกทำ' }));
+    await waitFor(() => expect(upsertSourceSpy).toHaveBeenCalled());
+
+    // 4. Swiping unlinked pot deletes + offers undo
+    const unusedPotTrack = screen.getByText('ก้อนสำรอง').closest('[data-testid="swipe-track"]') as HTMLElement;
+    fireEvent.pointerDown(unusedPotTrack, { pointerId: 4, clientX: 300, clientY: 20, pointerType: 'touch' });
+    fireEvent.pointerMove(unusedPotTrack, { pointerId: 4, clientX: 80, clientY: 20, pointerType: 'touch' });
+    fireEvent.pointerUp(unusedPotTrack, { pointerId: 4, clientX: 80, clientY: 20, pointerType: 'touch' });
+    await waitFor(() => expect(deletePotSpy).toHaveBeenCalledWith('pot-unused'));
+    const potToast = await screen.findByText('ลบก้อนสำรองแล้ว');
+    fireEvent.click(within(potToast.closest('li') ?? potToast.parentElement!.parentElement!).getByRole('button', { name: 'เลิกทำ' }));
+    await waitFor(() => expect(upsertPotSpy).toHaveBeenCalled());
+
+    // 5. Swiping recurring income deletes + offers undo
+    const incomeSection = screen.getByTestId('recurring-incomes-section');
+    const incomeTrack = within(incomeSection).getAllByText('เงินจากแม่')[0]!.closest('[data-testid="swipe-track"]') as HTMLElement;
+    fireEvent.pointerDown(incomeTrack, { pointerId: 5, clientX: 300, clientY: 20, pointerType: 'touch' });
+    fireEvent.pointerMove(incomeTrack, { pointerId: 5, clientX: 80, clientY: 20, pointerType: 'touch' });
+    fireEvent.pointerUp(incomeTrack, { pointerId: 5, clientX: 80, clientY: 20, pointerType: 'touch' });
+    await waitFor(() => expect(deleteRecurringIncomeSpy).toHaveBeenCalledWith('inc-mom-10'));
+    const incToast = await screen.findByText('ลบเงินจากแม่แล้ว');
+    fireEvent.click(within(incToast.closest('li') ?? incToast.parentElement!.parentElement!).getByRole('button', { name: 'เลิกทำ' }));
+    await waitFor(() => expect(upsertRecurringIncomeSpy).toHaveBeenCalled());
+  });
+
+  it('renders Danger Zone and ClearDataSheet with live counts, confirmation text guard, HoldToDelete, error toast, and redirect to /', async () => {
+    function RouterHarness({ initial }: { initial: FinanceData }) {
+      const [state, setState] = useState<FinanceData>(initial);
+      mockData = state;
+      setStateHook = setState;
+      return (
+        <MemoryRouter initialEntries={['/settings']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <Routes>
+            <Route path="/" element={<h1>หน้าภาพรวมทดสอบ</h1>} />
+            <Route path="/settings" element={<SettingsPage today="2026-11-20" />} />
+          </Routes>
+          <AppToaster />
+        </MemoryRouter>
+      );
+    }
+
+    // Check 375px and 1280px layout presence for Danger Zone
+    mockMatchMedia(375);
+    const { unmount } = render(<RouterHarness initial={makeFixtureClone()} />);
+    const dangerZone = screen.getByTestId('danger-zone');
+    expect(within(dangerZone).getByRole('button', { name: 'ล้างข้อมูลทั้งหมด' })).toBeTruthy();
+
+    fireEvent.click(within(dangerZone).getByRole('button', { name: 'ล้างข้อมูลทั้งหมด' }));
+    const dialog = screen.getByRole('dialog');
+    // Real counts from financeFixture: 9 transactions, 2 payments, 1 balanceCheck, 2 planItems, 3 subscriptions, 1 installment (total 18)
+    expect(dialog.textContent).toContain('9');
+    expect(dialog.textContent).toContain('18');
+    expect(dialog.textContent).toContain('กู้คืนไม่ได้');
+
+    // Switch defaults to OFF
+    const setupSwitch = within(dialog).getByRole('switch', { name: /ล้างการตั้งค่าด้วย/ });
+    expect(setupSwitch.getAttribute('aria-checked')).toBe('false');
+
+    // HoldToDelete is disabled until exact "ล้างข้อมูล" is typed
+    const disabledBtn = within(dialog).getByRole('button', { name: 'กดค้างเพื่อล้างข้อมูล' }) as HTMLButtonElement;
+    expect(disabledBtn.disabled).toBe(true);
+
+    const confirmInput = within(dialog).getByLabelText(/พิมพ์คำว่า.*ล้างข้อมูล/);
+    fireEvent.change(confirmInput, { target: { value: 'ล้าง' } });
+    expect((within(dialog).getByRole('button', { name: 'กดค้างเพื่อล้างข้อมูล' }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(confirmInput, { target: { value: 'ล้างข้อมูล' } });
+    const activeHoldBtn = within(dialog).getByRole('button', { name: 'กดค้างเพื่อล้างข้อมูล' }) as HTMLButtonElement;
+    expect(activeHoldBtn.disabled).toBe(false);
+
+    // Toggle includeSetup ON and test mid-way failure error toast
+    fireEvent.click(setupSwitch);
+    expect(setupSwitch.getAttribute('aria-checked')).toBe('true');
+    expect(dialog.textContent).toContain('3'); // 3 sources
+
+    clearAllDataSpy.mockRejectedValueOnce(new Error('ล้างข้อมูลไม่สำเร็จ'));
+    vi.useFakeTimers();
+    fireEvent.pointerDown(activeHoldBtn);
+    act(() => {
+      vi.advanceTimersByTime(HOLD_MS);
+    });
+    fireEvent.pointerUp(activeHoldBtn);
+    vi.useRealTimers();
+    expect(await screen.findByText('ล้างข้อมูลไม่สำเร็จ')).toBeTruthy();
+
+    // Retry and succeed -> toast "ล้างข้อมูลแล้ว" + navigate to "/"
+    vi.useFakeTimers();
+    const retryBtn = within(dialog).getByRole('button', { name: 'กดค้างเพื่อล้างข้อมูล' });
+    fireEvent.pointerDown(retryBtn);
+    act(() => {
+      vi.advanceTimersByTime(HOLD_MS);
+    });
+    fireEvent.pointerUp(retryBtn);
+    vi.useRealTimers();
+
+    await waitFor(() => expect(clearAllDataSpy).toHaveBeenCalledWith({ includeSetup: true }));
+    expect(await screen.findByText('ล้างข้อมูลแล้ว')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'หน้าภาพรวมทดสอบ' })).toBeTruthy();
+
+    unmount();
+    mockMatchMedia(1280);
+    render(<RouterHarness initial={makeFixtureClone()} />);
+    expect(within(screen.getByTestId('danger-zone')).getByRole('button', { name: 'ล้างข้อมูลทั้งหมด' })).toBeTruthy();
   });
 });

@@ -1057,3 +1057,56 @@ export async function confirmIncome(
     client,
   );
 }
+
+export interface ClearAllDataInput {
+  includeSetup: boolean;
+}
+
+// Child tables are deleted before parents to avoid FK restrict/update conflicts under RLS.
+const CLEAR_DATA_TABLES = [
+  'balance_checks',
+  'plan_items',
+  'transactions',
+  'bill_payments',
+  'subscriptions',
+  'installments',
+] as const;
+
+const CLEAR_SETUP_TABLES = [
+  'recurring_incomes',
+  'pots',
+  'payment_sources',
+] as const;
+
+const DEFAULT_SALARY_SATANG: Satang = 1_020_000;
+const DEFAULT_PAY_DAY = 10;
+
+export async function clearAllData(
+  input: ClearAllDataInput,
+  client: SupabaseClient = getSupabaseClient(),
+): Promise<void> {
+  const userResult = client.auth?.getUser ? await client.auth.getUser() : null;
+  const userId = userResult?.data?.user?.id;
+  if (userResult?.error || !userId) {
+    throw wrapRepoError('กรุณาเข้าสู่ระบบก่อนล้างข้อมูล', userResult?.error ?? null);
+  }
+
+  const tables: readonly string[] = input.includeSetup
+    ? [...CLEAR_DATA_TABLES, ...CLEAR_SETUP_TABLES]
+    : CLEAR_DATA_TABLES;
+
+  for (const table of tables) {
+    const { error } = await client.from(table).delete().eq('user_id', userId);
+    if (error) {
+      throw wrapRepoError('ล้างข้อมูลไม่สำเร็จ', error);
+    }
+  }
+
+  if (input.includeSetup) {
+    await updateSettings(
+      { salary: DEFAULT_SALARY_SATANG, payDay: DEFAULT_PAY_DAY, budgetStartPeriod: null },
+      client,
+    );
+    await seedDefaults(client);
+  }
+}
