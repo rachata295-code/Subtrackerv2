@@ -340,7 +340,7 @@ afterEach(() => {
 });
 
 describe('<PlanPage>', () => {
-  it('renders account card, C5 breakdown with negative warning, timeline, plan items + auto bills, and check history', () => {
+  it('renders account card, C5 breakdown, timeline, plan items + auto bills, and check history', () => {
     render(<StatefulPlanHarness initial={cloneFixture()} />);
 
     expect(screen.getByRole('heading', { level: 1, name: 'แผน' })).toBeTruthy();
@@ -358,7 +358,8 @@ describe('<PlanPage>', () => {
     expect(within(availableCard).getByText('เงินประจำที่จะเข้า')).toBeTruthy();
     expect(within(availableCard).getByText('บิลที่ยังไม่จ่าย')).toBeTruthy();
     expect(within(availableCard).getByText('แผนที่ยังไม่ทำ')).toBeTruthy();
-    expect(within(availableCard).getByText('ที่เหลือในก้อน (รอบนี้)')).toBeTruthy();
+    // Pot leftovers are no longer part of the breakdown; this fixture still overspends (฿1,500.07 short) so the warning shows.
+    expect(within(availableCard).queryByText('ที่เหลือในก้อน (รอบนี้)')).toBeNull();
     expect(within(availableCard).getByText(/แผนเกินเงินที่มี/)).toBeTruthy();
 
     // Timeline + low point

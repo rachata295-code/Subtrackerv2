@@ -4,68 +4,17 @@ import type {
   ForecastEvent,
   ForecastLow,
   ISODate,
-  PaymentSource,
-  PeriodKey,
   Satang,
 } from '../types/finance';
 import { expectedBalance } from './balance';
 import { billAmount } from './bills';
 import { addDays, addMonths, formatPeriodKey, parsePeriodKey } from './date';
 import { recurringIncomeDueDates } from './income';
-import { installmentSchedule } from './installment';
 import { payPeriod } from './period';
 import { potStatus } from './pots';
 import { hasBillingCycle, statementWindowForKey } from './statement';
-import { subscriptionCharges } from './subscription';
 
 export type { Forecast, ForecastEvent, ForecastLow };
-
-/**
- * Sum statement charges for `src` in `statementKey` that do NOT belong to any pot (`potId === null`).
- * Pot-assigned charges are already deducted via `potStatus.reserved` in `potsLeft`, so counting only
- * non-pot charges in `Forecast.bills` prevents double-subtracting bills like the ฿1,077 credit card bill (SPEC §5 C5).
- */
-function nonPotBillAmount(
-  src: PaymentSource,
-  statementKey: PeriodKey,
-  data: FinanceData,
-  validPotIds: ReadonlySet<string>,
-): Satang {
-  if (!hasBillingCycle(src)) return 0;
-
-  const window = statementWindowForKey(src, statementKey);
-  let total: Satang = 0;
-
-  const isOutsidePots = (potId: string | null) => potId === null || !validPotIds.has(potId);
-
-  for (const tx of data.transactions) {
-    if (tx.sourceId !== src.id || tx.direction !== 'out') continue;
-    if (!isOutsidePots(tx.potId)) continue;
-    if (tx.date >= window.start && tx.date <= window.end) {
-      total += tx.amount;
-    }
-  }
-
-  for (const sub of data.subscriptions) {
-    if (sub.sourceId !== src.id) continue;
-    if (!isOutsidePots(sub.potId)) continue;
-    for (const charge of subscriptionCharges(sub, window.start, window.end)) {
-      total += charge.amount;
-    }
-  }
-
-  for (const inst of data.installments) {
-    if (inst.sourceId !== src.id) continue;
-    if (!isOutsidePots(inst.potId)) continue;
-    for (const charge of installmentSchedule(inst)) {
-      if (charge.chargeDate >= window.start && charge.chargeDate <= window.end) {
-        total += charge.amount;
-      }
-    }
-  }
-
-  return total;
-}
 
 /**
  * Computes available cash, component breakdown, and daily running-balance timeline for the current pay period (SPEC §5 C5 & §6).
@@ -109,7 +58,6 @@ export function forecast(data: FinanceData, sourceId: string, today: ISODate): F
   // 2. Unpaid bills for this bank due in the current pay period (using the SPEC §4 dueDate - 1 rule).
   let bills: Satang = 0;
   const paidKeys = new Set(data.payments.map((p) => `${p.sourceId}\0${p.statementKey}`));
-  const validPotIds = new Set(data.pots.map((p) => p.id));
   const firstCandidate = addMonths(year, month, -2);
   const lastCandidate = addMonths(year, month, 2);
 
@@ -130,10 +78,10 @@ export function forecast(data: FinanceData, sourceId: string, today: ISODate): F
         win.dueDate >= today &&
         !paidKeys.has(`${src.id}\0${statementKey}`)
       ) {
-        const nonPotAmount = nonPotBillAmount(src, statementKey, data, validPotIds);
-        bills += nonPotAmount;
-
+        // The whole unpaid bill leaves the bank, whether or not its charges sit inside a pot: pot "left" is only
+        // budget minus reserved minus spent, so reserved bills never show up there and must be subtracted here.
         const fullBill = billAmount(src, statementKey, data);
+        bills += fullBill;
         if (fullBill > 0) {
           rawEvents.push({
             date: win.dueDate,
@@ -175,7 +123,9 @@ export function forecast(data: FinanceData, sourceId: string, today: ISODate): F
     }
   }
 
-  const available: Satang = start + incoming - bills - plans - potsLeft;
+  // Pot leftovers are deliberately NOT subtracted: "available" is cash after known commitments (real unpaid bills
+  // and plans), i.e. what can be spent until the end of the period. `potsLeft` stays on the result for display only.
+  const available: Satang = start + incoming - bills - plans;
 
   // Sort timeline chronologically; on the same date, outflows ('out') run before inflows ('in') (worst-case first).
   rawEvents.sort((a, b) => {

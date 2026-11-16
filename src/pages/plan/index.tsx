@@ -428,7 +428,7 @@ export default function PlanPage({ today: todayProp }: PlanPageProps = {}) {
                       แผนเกินเงินที่มี <Money value={Math.abs(fc.available) / 100} size="sm" tone="inherit" />
                     </p>
                   ) : (
-                    <p className="mt-1 text-xs text-muted">เงินที่ยังไม่ได้จัดให้อะไรเลยในรอบนี้</p>
+                    <p className="mt-1 text-xs text-muted">หลังหักบิลและแผนที่ยังไม่ทำ ใช้ได้ถึงสิ้นรอบ</p>
                   )}
                 </div>
 
@@ -452,10 +452,6 @@ export default function PlanPage({ today: todayProp }: PlanPageProps = {}) {
                   <div className="flex items-center justify-between gap-2">
                     <dt className="text-muted">แผนที่ยังไม่ทำ</dt>
                     <dd className="shrink-0 tabular-nums text-text">{`−${formatTHB(fc.plans / 100)}`}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="text-muted">ที่เหลือในก้อน (รอบนี้)</dt>
-                    <dd className="shrink-0 tabular-nums text-text">{`−${formatTHB(fc.potsLeft / 100)}`}</dd>
                   </div>
                 </dl>
               </div>
@@ -671,13 +667,6 @@ export default function PlanPage({ today: todayProp }: PlanPageProps = {}) {
                       })}
                     </div>
                   )}
-
-                  {fc.potsLeft > 0 ? (
-                    <div className="flex items-center justify-between gap-2 border-t border-rule pt-2 text-xs text-muted">
-                      <span>หักเงินที่เหลือในก้อน (ไม่มีวันกำหนด)</span>
-                      <Money value={fc.potsLeft / 100} size="sm" />
-                    </div>
-                  ) : null}
                 </>
               )}
             </Card>
