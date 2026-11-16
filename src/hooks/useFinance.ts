@@ -21,6 +21,7 @@ import {
   deleteTransaction,
   loadFinanceData,
   payBill,
+  todayBangkokISO,
   uncompletePlanItem,
   updateSettings,
   updateTransaction,
@@ -41,7 +42,6 @@ import type {
   CreateTransactionInput,
   CreateTransactionsInput,
   FinanceData,
-  ISODate,
   Installment,
   PayBillInput,
   PaymentSource,
@@ -85,13 +85,13 @@ function nextFixtureId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function todayBangkokISO(now: Date = new Date()): ISODate {
-  return new Date(now.getTime() + 7 * 3_600_000).toISOString().slice(0, 10);
-}
-
-function buildFixtureTransaction(input: CreateTransactionInput, createdAt?: string): Transaction {
+function buildFixtureTransaction(
+  input: CreateTransactionInput,
+  createdAt?: string,
+  idPrefix: string = 'tx',
+): Transaction {
   return {
-    id: nextFixtureId('tx'),
+    id: nextFixtureId(idPrefix),
     date: input.date,
     amount: input.amount,
     direction: input.direction,
@@ -305,20 +305,79 @@ export function useCreateTransaction(): UseFinanceMutation<CreateTransactionInpu
 }
 
 export function useCreateTransactions(): UseFinanceMutation<CreateTransactionsInput, Transaction[]> {
-  return useFinanceMutation(
-    (inputs) => createTransactions(inputs),
-    (current, inputs) => {
-      if (inputs.length === 0) return { data: current, result: [] };
-      const nowMs = Date.now();
-      const created = inputs.map((input, idx) =>
-        buildFixtureTransaction(input, new Date(nowMs + idx).toISOString()),
-      );
-      return {
-        data: { ...current, transactions: [...created, ...current.transactions] },
-        result: created,
-      };
+  const queryClient = useResolvedQueryClient();
+
+  const mutation = useMutation<
+    Transaction[],
+    Error,
+    CreateTransactionsInput,
+    { previous: FinanceData | undefined; optimisticIds: string[] }
+  >(
+    {
+      mutationFn: async (inputs) => {
+        if (isFixturesMode()) {
+          if (inputs.length === 0) return [];
+          const current = queryClient.getQueryData<FinanceData>(FINANCE_QUERY_KEY) ?? financeFixture;
+          const nowMs = Date.now();
+          const created = inputs.map((input, idx) =>
+            buildFixtureTransaction(input, new Date(nowMs + idx).toISOString()),
+          );
+          queryClient.setQueryData<FinanceData>(FINANCE_QUERY_KEY, {
+            ...current,
+            transactions: [...created, ...current.transactions],
+          });
+          return created;
+        }
+        return createTransactions(inputs);
+      },
+      // Optimistically show batch/hotbar entries immediately, and roll back if the remote request fails.
+      onMutate: async (inputs) => {
+        if (isFixturesMode() || inputs.length === 0) {
+          return { previous: undefined, optimisticIds: [] };
+        }
+        await queryClient.cancelQueries({ queryKey: FINANCE_QUERY_KEY });
+        const previous = queryClient.getQueryData<FinanceData>(FINANCE_QUERY_KEY);
+        if (!previous) {
+          return { previous: undefined, optimisticIds: [] };
+        }
+        const nowMs = Date.now();
+        const optimistic = inputs.map((input, idx) =>
+          buildFixtureTransaction(input, new Date(nowMs + idx).toISOString(), 'optimistic-tx'),
+        );
+        queryClient.setQueryData<FinanceData>(FINANCE_QUERY_KEY, {
+          ...previous,
+          transactions: [...optimistic, ...previous.transactions],
+        });
+        return { previous, optimisticIds: optimistic.map((t) => t.id) };
+      },
+      onError: (_error, _inputs, context) => {
+        if (context?.previous !== undefined) {
+          queryClient.setQueryData(FINANCE_QUERY_KEY, context.previous);
+        }
+      },
+      onSuccess: async (created, _inputs, context) => {
+        if (!isFixturesMode() && context?.optimisticIds.length) {
+          const optimisticSet = new Set(context.optimisticIds);
+          queryClient.setQueryData<FinanceData>(FINANCE_QUERY_KEY, (current) => {
+            if (!current) return current;
+            return {
+              ...current,
+              transactions: [...created, ...current.transactions.filter((t) => !optimisticSet.has(t.id))],
+            };
+          });
+        }
+        await queryClient.invalidateQueries({ queryKey: FINANCE_QUERY_KEY });
+      },
     },
+    queryClient,
   );
+
+  return {
+    mutate: mutation.mutate,
+    mutateAsync: mutation.mutateAsync,
+    isPending: mutation.isPending,
+    error: mutation.error,
+  };
 }
 
 export function useUpdateTransaction(): UseFinanceMutation<Transaction, Transaction> {

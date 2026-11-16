@@ -95,7 +95,7 @@ const TXS: Transaction[] = [
 ];
 
 describe('entriesUtils', () => {
-  it('filters transactions by period, sourceFilter, and potFilter', () => {
+  it('filters transactions by period, sourceFilter, potFilter, and categoryFilter', () => {
     expect(filterTransactions(TXS, PERIOD, 'all', 'all').map((t) => t.id)).toEqual([
       'tx-1',
       'tx-2',
@@ -107,6 +107,8 @@ describe('entriesUtils', () => {
     expect(filterTransactions(TXS, PERIOD, 'all', 'pot-play').map((t) => t.id)).toEqual(['tx-1', 'tx-3']);
     expect(filterTransactions(TXS, PERIOD, 'src-bank', 'pot-essential').map((t) => t.id)).toEqual(['tx-2']);
     expect(filterTransactions(TXS, PERIOD, 'src-card', 'pot-essential')).toEqual([]);
+    expect(filterTransactions(TXS, PERIOD, 'all', 'all', 'food').map((t) => t.id)).toEqual(['tx-2', 'tx-3']);
+    expect(filterTransactions(TXS, PERIOD, 'all', 'all', 'entertainment').map((t) => t.id)).toEqual(['tx-1']);
   });
 
   it('groups filtered transactions by day descending with latest-first intra-day order and daily totals', () => {

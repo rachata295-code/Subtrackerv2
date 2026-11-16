@@ -8,8 +8,11 @@ import { AppToaster } from '../../components/ui/Toaster';
 import { financeFixture } from '../../fixtures/finance';
 import { mockMatchMedia } from '../../test/mockMatchMedia';
 import type {
+  AmountExpressionResult,
   BillPayment,
   CreateTransactionInput,
+  CreateTransactionsInput,
+  HotbarItem,
   ISODate,
   Outflow,
   PayBillInput,
@@ -17,6 +20,7 @@ import type {
   Transaction,
   UseFinanceData,
 } from '../../types/finance';
+import { parseAmount } from '../../lib/parseAmount';
 import * as domain from '../../domain';
 import * as financeHooks from '../../hooks/useFinance';
 import OverviewPage from './index';
@@ -28,6 +32,52 @@ vi.mock('../../components/ThemeProvider', () => ({
 
 const TODAY: ISODate = '2026-11-15';
 
+const FIXTURE_HOTBAR: HotbarItem[] = [
+  {
+    note: 'ข้าวมันไก่',
+    amount: 4_500,
+    category: 'food',
+    sourceId: 'src-bank',
+    potId: 'pot-essential',
+    count: 3,
+    lastDate: '2026-11-08',
+  },
+  {
+    note: 'ชานม',
+    amount: 8_500,
+    category: 'food',
+    sourceId: 'src-bank',
+    potId: 'pot-essential',
+    count: 2,
+    lastDate: '2026-11-06',
+  },
+];
+
+function specEvaluateAmountExpression(text: string): AmountExpressionResult {
+  const trimmed = text.trim();
+  if (!trimmed) return { error: 'กรอกจำนวนเงินให้ถูกต้อง' };
+  const normalized = trimmed.replace(/\u2212/g, '-');
+  if (/[^0-9.,+\-\s฿]/.test(normalized)) return { error: 'รูปแบบตัวเลขไม่ถูกต้อง' };
+  const parts = normalized.split(/([+-])/);
+  if (parts.length === 0 || parts[0] === '' || parts[parts.length - 1] === '') {
+    return { error: 'นิพจน์ไม่สมบูรณ์' };
+  }
+  let total = 0;
+  let op = 1;
+  for (let i = 0; i < parts.length; i++) {
+    const token = parts[i]!.trim();
+    if (i % 2 === 1) {
+      op = token === '-' ? -1 : 1;
+      continue;
+    }
+    const parsed = parseAmount(token);
+    if (parsed === null) return { error: 'รูปแบบตัวเลขไม่ถูกต้อง' };
+    total += op * Math.round(Number((parsed * 100).toPrecision(15)));
+  }
+  if (total <= 0) return { error: 'ยอดต้องมากกว่า 0' };
+  return { value: total };
+}
+
 let mockFinanceState: UseFinanceData = {
   data: financeFixture,
   isLoading: false,
@@ -35,6 +85,7 @@ let mockFinanceState: UseFinanceData = {
 };
 
 let createTxSpy = vi.fn<(input: CreateTransactionInput) => Promise<Transaction>>();
+let createTxsSpy = vi.fn<(inputs: CreateTransactionsInput) => Promise<Transaction[]>>();
 let deleteTxSpy = vi.fn<(id: string) => Promise<void>>();
 let payBillSpy = vi.fn<(input: PayBillInput) => Promise<BillPayment>>();
 let deleteBillPaymentSpy = vi.fn<(id: string) => Promise<void>>();
@@ -91,6 +142,15 @@ beforeEach(() => {
     recurringIncomeId: input.recurringIncomeId ?? null,
     incomeDueOn: input.incomeDueOn ?? null,
   }));
+  createTxsSpy = vi.fn(async (inputs) =>
+    inputs.map((input, idx) => ({
+      id: `tx-batch-${idx + 1}`,
+      ...input,
+      createdAt: input.createdAt ?? `${input.date}T12:00:0${idx}.000Z`,
+      recurringIncomeId: input.recurringIncomeId ?? null,
+      incomeDueOn: input.incomeDueOn ?? null,
+    })),
+  );
   deleteTxSpy = vi.fn(async () => {});
   payBillSpy = vi.fn(async (input) => ({
     id: 'pay-new-1',
@@ -99,12 +159,43 @@ beforeEach(() => {
   }));
   deleteBillPaymentSpy = vi.fn(async () => {});
 
+  const origEval = domain.evaluateAmountExpression;
+  vi.spyOn(domain, 'evaluateAmountExpression').mockImplementation((text) => {
+    try {
+      return origEval(text);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('not implemented')) {
+        return specEvaluateAmountExpression(text);
+      }
+      throw err;
+    }
+  });
+  const origHotbar = domain.hotbarItems;
+  vi.spyOn(domain, 'hotbarItems').mockImplementation((data, today, limit) => {
+    try {
+      return origHotbar(data, today, limit);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('not implemented')) {
+        return data.transactions.length === 0 ? [] : FIXTURE_HOTBAR;
+      }
+      throw err;
+    }
+  });
+
   vi.spyOn(financeHooks, 'useFinanceData').mockImplementation(() => mockFinanceState);
   vi.spyOn(financeHooks, 'useCreateTransaction').mockImplementation(() => ({
     mutate: (input) => {
       void createTxSpy(input);
     },
     mutateAsync: createTxSpy,
+    isPending: false,
+    error: null,
+  }));
+  vi.spyOn(financeHooks, 'useCreateTransactions').mockImplementation(() => ({
+    mutate: (inputs) => {
+      void createTxsSpy(inputs);
+    },
+    mutateAsync: createTxsSpy,
     isPending: false,
     error: null,
   }));
@@ -625,5 +716,241 @@ describe('<OverviewPage>', () => {
     const payButtons = screen.getAllByRole('button', { name: 'จ่ายแล้ว' });
     fireEvent.click(payButtons[0]);
     expect(await screen.findByText(/เครือข่ายขัดข้อง/)).toBeTruthy();
+  });
+
+  it('switches QuickAddSheet between รายจ่าย and เงินเข้า with IN_CATEGORIES and null potId', async () => {
+    renderOverview();
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการ' }));
+    const dialog = screen.getByRole('dialog');
+
+    expect(within(dialog).getByRole('tablist', { name: 'ประเภท' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'เก็บเงิน' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'ลืมจด' })).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'เงินเข้า' }));
+    expect(within(dialog).getByRole('button', { name: 'เงินประจำ' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'พาร์ทไทม์' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'ฟรีแลนซ์' })).toBeTruthy();
+    expect(within(dialog).queryByRole('button', { name: 'อาหาร' })).toBeNull();
+    expect(within(dialog).queryByRole('tablist', { name: 'ก้อนเงิน' })).toBeNull();
+
+    fireEvent.change(within(dialog).getByLabelText('จำนวนเงิน'), { target: { value: '500' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'พาร์ทไทม์' }));
+    fireEvent.change(within(dialog).getByLabelText('โน้ต (ไม่บังคับ)'), { target: { value: 'สอนพิเศษ' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'บันทึก' }));
+
+    await waitFor(() => expect(createTxSpy).toHaveBeenCalledTimes(1));
+    expect(createTxSpy).toHaveBeenCalledWith({
+      date: TODAY,
+      amount: 50_000,
+      direction: 'in',
+      sourceId: 'src-bank',
+      potId: null,
+      category: 'parttime',
+      note: 'สอนพิเศษ',
+    });
+  });
+
+  it('adds and deletes multiple rows with AnimatedRow and saves all at once via useCreateTransactions', async () => {
+    renderOverview();
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการ' }));
+    const dialog = screen.getByRole('dialog');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '+ เพิ่มอีกรายการ' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '+ เพิ่มอีกรายการ' }));
+
+    // Delete the 3rd row, then re-add so we also verify AnimatedRow remove/add.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'ลบรายการที่ 3' }));
+    await waitFor(() => expect(within(dialog).getAllByLabelText('จำนวนเงิน')).toHaveLength(2), {
+      timeout: ROW_EXIT_MS + 500,
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: '+ เพิ่มอีกรายการ' }));
+
+    const amountInputs = within(dialog).getAllByLabelText('จำนวนเงิน');
+    const noteInputs = within(dialog).getAllByLabelText('โน้ต (ไม่บังคับ)');
+    expect(amountInputs).toHaveLength(3);
+
+    fireEvent.change(amountInputs[0]!, { target: { value: '45' } });
+    fireEvent.change(noteInputs[0]!, { target: { value: 'ข้าวมันไก่' } });
+    fireEvent.change(amountInputs[1]!, { target: { value: '120+20' } });
+    fireEvent.change(noteInputs[1]!, { target: { value: 'กาแฟ' } });
+    fireEvent.change(amountInputs[2]!, { target: { value: '80' } });
+    fireEvent.change(noteInputs[2]!, { target: { value: 'รถไฟฟ้า' } });
+
+    const submitBtn = within(dialog).getByRole('button', { name: 'บันทึก 3 รายการ · ฿265' });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => expect(createTxsSpy).toHaveBeenCalledTimes(1));
+    expect(createTxSpy).not.toHaveBeenCalled();
+    expect(createTxsSpy).toHaveBeenCalledWith([
+      {
+        date: TODAY,
+        amount: 4_500,
+        direction: 'out',
+        sourceId: 'src-bank',
+        potId: 'pot-play',
+        category: 'food',
+        note: 'ข้าวมันไก่',
+      },
+      {
+        date: TODAY,
+        amount: 14_000,
+        direction: 'out',
+        sourceId: 'src-bank',
+        potId: 'pot-play',
+        category: 'food',
+        note: 'กาแฟ',
+      },
+      {
+        date: TODAY,
+        amount: 8_000,
+        direction: 'out',
+        sourceId: 'src-bank',
+        potId: 'pot-play',
+        category: 'food',
+        note: 'รถไฟฟ้า',
+      },
+    ]);
+
+    expect(await screen.findByText('บันทึก 3 รายการแล้ว')).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'เลิกทำ' }));
+    await waitFor(() => expect(deleteTxSpy).toHaveBeenCalledTimes(3));
+  });
+
+  it('aborts entire batch without calling useCreateTransactions when any row is invalid or batch fails', async () => {
+    createTxsSpy = vi.fn(async () => {
+      throw new Error('บันทึกล้มเหลวทั้งชุด');
+    });
+
+    renderOverview();
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการ' }));
+    const dialog = screen.getByRole('dialog');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '+ เพิ่มอีกรายการ' }));
+    const amountInputs = within(dialog).getAllByLabelText('จำนวนเงิน');
+    fireEvent.change(amountInputs[0]!, { target: { value: '50' } });
+    // Leave row 2 empty -> invalid.
+    fireEvent.click(within(dialog).getByRole('button', { name: /บันทึก 2 รายการ/ }));
+
+    expect(createTxsSpy).not.toHaveBeenCalled();
+    expect(within(dialog).getByText('กรอกจำนวนเงินให้ถูกต้อง')).toBeTruthy();
+
+    // Fix row 2, then test repo failure keeps sheet open + shows error toast.
+    fireEvent.change(amountInputs[1]!, { target: { value: '60' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'บันทึก 2 รายการ · ฿110' }));
+    expect(await screen.findByText(/บันทึกล้มเหลวทั้งชุด/)).toBeTruthy();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('warns when date is before the bank account latest BalanceCheck (SPEC §5 C2) and still allows saving', async () => {
+    renderOverview();
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการ' }));
+    const dialog = screen.getByRole('dialog');
+
+    // financeFixture has BalanceCheck on 2026-11-10 for src-bank.
+    expect(within(dialog).queryByText('รายการนี้อยู่ก่อนเช็กยอดล่าสุด จึงไม่เปลี่ยนยอดบัญชี')).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText('วันที่'), { target: { value: '2026-11-09' } });
+    expect(within(dialog).getByText('รายการนี้อยู่ก่อนเช็กยอดล่าสุด จึงไม่เปลี่ยนยอดบัญชี')).toBeTruthy();
+
+    // Switching to credit card clears the bank BalanceCheck warning.
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'บัตรเครดิต' }));
+    expect(within(dialog).queryByText('รายการนี้อยู่ก่อนเช็กยอดล่าสุด จึงไม่เปลี่ยนยอดบัญชี')).toBeNull();
+
+    // Switching back to bank keeps the warning, and submit still succeeds.
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'บัญชี' }));
+    expect(within(dialog).getByText('รายการนี้อยู่ก่อนเช็กยอดล่าสุด จึงไม่เปลี่ยนยอดบัญชี')).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText('จำนวนเงิน'), { target: { value: '75' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'บันทึก' }));
+
+    await waitFor(() => expect(createTxSpy).toHaveBeenCalledWith(expect.objectContaining({ date: '2026-11-09', amount: 7_500 })));
+  });
+
+  it('shows HotBar under overview header and inside QuickAddSheet, supports tap save + undo and long-press prefill at 375px and 1280px', async () => {
+    for (const width of [375, 1280]) {
+      mockMatchMedia(width);
+      const { unmount } = renderOverview({ withShell: true });
+
+      const riceBtn = screen.getByRole('button', { name: 'ข้าวมันไก่ ฿45' });
+      expect(riceBtn.className).toContain('pressable');
+      expect(riceBtn.className).toContain('min-h-tap');
+
+      // Tap saves immediately with fixture values.
+      fireEvent.click(riceBtn);
+      await waitFor(() => expect(createTxSpy).toHaveBeenCalledTimes(1));
+      expect(createTxSpy).toHaveBeenLastCalledWith({
+        date: TODAY,
+        amount: 4_500,
+        direction: 'out',
+        sourceId: 'src-bank',
+        potId: 'pot-essential',
+        category: 'food',
+        note: 'ข้าวมันไก่',
+      });
+      expect(await screen.findByText('บันทึกข้าวมันไก่ ฿45')).toBeTruthy();
+      fireEvent.click(await screen.findByRole('button', { name: 'เลิกทำ' }));
+      await waitFor(() => expect(deleteTxSpy).toHaveBeenCalledWith('tx-new-1'));
+
+      // Right-click (or long-press) opens QuickAddSheet prefilled with item values, and HotBar also appears inside sheet.
+      const teaBtn = screen.getByRole('button', { name: 'ชานม ฿85' });
+      fireEvent.contextMenu(teaBtn);
+
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog.getAttribute('data-vaul-drawer-direction')).toBe(width >= 1024 ? 'right' : 'bottom');
+      expect((within(dialog).getByLabelText('จำนวนเงิน') as HTMLInputElement).value).toBe('85');
+      expect((within(dialog).getByLabelText('โน้ต (ไม่บังคับ)') as HTMLInputElement).value).toBe('ชานม');
+      expect(within(dialog).getByRole('button', { name: 'ข้าวมันไก่ ฿45' })).toBeTruthy();
+
+      createTxSpy.mockClear();
+      deleteTxSpy.mockClear();
+      toast.dismiss();
+      unmount();
+    }
+  });
+
+  it('supports per-row overrides via ตัวเลือกเพิ่ม and forces potId=null for savings/unknown (SPEC §4 B2 & §6)', async () => {
+    renderOverview();
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการ' }));
+    const dialog = screen.getByRole('dialog');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '+ เพิ่มอีกรายการ' }));
+    const amountInputs = within(dialog).getAllByLabelText('จำนวนเงิน');
+    fireEvent.change(amountInputs[0]!, { target: { value: '100' } });
+    fireEvent.change(amountInputs[1]!, { target: { value: '200' } });
+
+    // Row 1: category "เก็บเงิน" (savings) must force potId: null per SPEC §6.
+    const categoryGroups = within(dialog).getAllByRole('group', { name: 'หมวดหมู่' });
+    fireEvent.click(within(categoryGroups[0]!).getByRole('button', { name: 'เก็บเงิน' }));
+
+    // Row 2: expand "ตัวเลือกเพิ่ม" and override date to before BalanceCheck (2026-11-08) and source to credit card -> no warning,
+    // then back to bank -> warning appears inside row 2 overrides.
+    const advButtons = within(dialog).getAllByRole('button', { name: 'ตัวเลือกเพิ่ม' });
+    fireEvent.click(advButtons[1]!);
+    fireEvent.change(within(dialog).getByLabelText('วันที่ (รายการนี้)'), { target: { value: '2026-11-08' } });
+    expect(within(dialog).getByText('รายการนี้อยู่ก่อนเช็กยอดล่าสุด จึงไม่เปลี่ยนยอดบัญชี')).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText('ช่องทาง (รายการนี้)'), { target: { value: 'src-card' } });
+    expect(within(dialog).queryByText('รายการนี้อยู่ก่อนเช็กยอดล่าสุด จึงไม่เปลี่ยนยอดบัญชี')).toBeNull();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'บันทึก 2 รายการ · ฿300' }));
+    await waitFor(() => expect(createTxsSpy).toHaveBeenCalledTimes(1));
+    expect(createTxsSpy).toHaveBeenCalledWith([
+      {
+        date: TODAY,
+        amount: 10_000,
+        direction: 'out',
+        sourceId: 'src-bank',
+        potId: null,
+        category: 'savings',
+        note: '',
+      },
+      {
+        date: '2026-11-08',
+        amount: 20_000,
+        direction: 'out',
+        sourceId: 'src-card',
+        potId: 'pot-play',
+        category: 'food',
+        note: '',
+      },
+    ]);
   });
 });

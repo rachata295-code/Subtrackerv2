@@ -59,16 +59,17 @@ vi.mock('../../hooks/useFinance', () => ({
 import EntriesPage from './index';
 import { payPeriod } from '../../domain';
 import { useState } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 
 function StatefulHarness({ initial, today = '2026-11-15' }: { initial: FinanceData; today?: string }) {
   const [state, setState] = useState<FinanceData>(initial);
   mockData = state;
   setStateHook = setState;
   return (
-    <>
+    <MemoryRouter initialEntries={['/entries']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <EntriesPage today={today} />
       <AppToaster />
-    </>
+    </MemoryRouter>
   );
 }
 
