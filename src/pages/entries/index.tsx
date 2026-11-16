@@ -13,6 +13,7 @@ import { Pill } from '../../components/ui/Pill';
 import { SegmentedControl, type SegmentedOption } from '../../components/ui/SegmentedControl';
 import { SelectField, type SelectOption } from '../../components/ui/SelectField';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { SwipeToDelete } from '../../components/ui/SwipeToDelete';
 import { notify } from '../../components/ui/Toaster';
 import {
   useCreateTransaction,
@@ -300,8 +301,8 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
     });
   };
 
-  const handleDelete = async (tx: Transaction) => {
-    if (leavingIds.has(tx.id)) return;
+  const handleDelete = async (tx: Transaction, toastMessage = 'ลบรายการแล้ว'): Promise<boolean> => {
+    if (leavingIds.has(tx.id)) return false;
     const snapshot: CreateTransactionInput = {
       date: tx.date,
       amount: tx.amount,
@@ -310,16 +311,18 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
       potId: tx.potId,
       category: tx.category,
       note: tx.note,
+      recurringIncomeId: tx.recurringIncomeId,
+      incomeDueOn: tx.incomeDueOn,
     };
     setSheetOpen(false);
     try {
       await animateAndDelete(tx.id);
     } catch (err) {
       toast.error(`ลบรายการไม่สำเร็จ: ${formatErrorMessage(err)}`);
-      return;
+      return false;
     }
     let undone = false;
-    notify('ลบรายการแล้ว', {
+    notify(toastMessage, {
       undo: () => {
         if (undone) return;
         undone = true;
@@ -335,6 +338,7 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
           });
       },
     });
+    return true;
   };
 
   return (
@@ -511,14 +515,21 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
                                 key={tx.id}
                                 entering={recentIds.has(tx.id) && !isLeaving}
                                 leaving={isLeaving}
+                                className="border-b border-rule last:border-b-0"
                               >
-                                <ListRow
-                                  title={title}
-                                  detail={detail}
-                                  amount={tx.amount / 100}
-                                  amountKind={tx.direction === 'in' ? 'income' : 'spend'}
-                                  onClick={() => openEdit(tx)}
-                                />
+                                <SwipeToDelete
+                                  label={title}
+                                  disabled={isLeaving}
+                                  onDelete={() => handleDelete(tx, `ลบ${title}แล้ว`)}
+                                >
+                                  <ListRow
+                                    title={title}
+                                    detail={detail}
+                                    amount={tx.amount / 100}
+                                    amountKind={tx.direction === 'in' ? 'income' : 'spend'}
+                                    onClick={() => openEdit(tx)}
+                                  />
+                                </SwipeToDelete>
                               </AnimatedRow>
                             );
                           })}
@@ -540,7 +551,7 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
             today={today}
             editing={editing}
             onSave={handleSave}
-            onDelete={handleDelete}
+            onDelete={(tx) => handleDelete(tx).then(() => undefined)}
             isSubmitting={createTx.isPending || updateTx.isPending || deleteTx.isPending}
           />
         </>

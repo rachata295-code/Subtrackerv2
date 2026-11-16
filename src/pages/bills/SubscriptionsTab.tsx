@@ -7,6 +7,7 @@ import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Money } from '../../components/ui/Money';
 import { Pill } from '../../components/ui/Pill';
+import { SwipeToDelete } from '../../components/ui/SwipeToDelete';
 import type { FinanceData, Subscription } from '../../types/finance';
 import { satangToBaht, subscriptionMonthlySatang, totalMonthlySubscriptionsSatang } from './billsLogic';
 import { useAnimatedItems } from './useAnimatedItems';
@@ -14,6 +15,7 @@ import { useAnimatedItems } from './useAnimatedItems';
 export interface SubscriptionsTabProps {
   data: FinanceData;
   onEdit: (sub: Subscription) => void;
+  onDelete?: (sub: Subscription) => Promise<boolean | void>;
 }
 
 function billingScheduleText(sub: Subscription): string {
@@ -23,7 +25,7 @@ function billingScheduleText(sub: Subscription): string {
   return `ทุกวันที่ ${sub.billingDay}`;
 }
 
-export function SubscriptionsTab({ data, onEdit }: SubscriptionsTabProps) {
+export function SubscriptionsTab({ data, onEdit, onDelete }: SubscriptionsTabProps) {
   const sortedSubs = useMemo(() => {
     const activeSubs = data.subscriptions
       .filter((s) => s.active)
@@ -72,43 +74,49 @@ export function SubscriptionsTab({ data, onEdit }: SubscriptionsTabProps) {
                 leaving={leaving}
                 className="border-b border-rule last:border-b-0"
               >
-                <button
-                  type="button"
-                  data-testid={`subscription-item-${sub.id}`}
-                  onClick={() => onEdit(sub)}
-                  className={[
-                    'pressable flex min-h-tap w-full items-center justify-between gap-3 py-2.5 text-left',
-                    'hover-fine:hover:bg-stone-bg focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2',
-                    !sub.active ? 'opacity-60' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
+                <SwipeToDelete
+                  label={sub.name}
+                  disabled={leaving || !onDelete}
+                  onDelete={() => onDelete!(sub)}
                 >
-                  <div className="min-w-0 flex-1 lg:flex lg:items-center lg:gap-3">
-                    <p className="truncate text-base font-medium text-text lg:order-2 lg:min-w-0 lg:flex-1">
-                      {sub.name}
-                    </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted lg:contents">
-                      <span className="lg:order-1 lg:shrink-0 lg:text-sm lg:tabular-nums lg:text-muted">
-                        {billingScheduleText(sub)}
-                      </span>
-                      <div className="contents lg:order-3 lg:flex lg:shrink-0 lg:items-center lg:gap-1.5">
-                        {src ? <Pill hue={src.hue}>{src.name}</Pill> : null}
-                        {pot ? <Pill hue={pot.hue}>{pot.name}</Pill> : null}
-                        {!sub.active ? <Pill hue="stone">หยุดพัก</Pill> : null}
+                  <button
+                    type="button"
+                    data-testid={`subscription-item-${sub.id}`}
+                    onClick={() => onEdit(sub)}
+                    className={[
+                      'pressable flex min-h-tap w-full items-center justify-between gap-3 py-2.5 text-left',
+                      'hover-fine:hover:bg-stone-bg focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2',
+                      !sub.active ? 'opacity-60' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    <div className="min-w-0 flex-1 lg:flex lg:items-center lg:gap-3">
+                      <p className="truncate text-base font-medium text-text lg:order-2 lg:min-w-0 lg:flex-1">
+                        {sub.name}
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted lg:contents">
+                        <span className="lg:order-1 lg:shrink-0 lg:text-sm lg:tabular-nums lg:text-muted">
+                          {billingScheduleText(sub)}
+                        </span>
+                        <div className="contents lg:order-3 lg:flex lg:shrink-0 lg:items-center lg:gap-1.5">
+                          {src ? <Pill hue={src.hue}>{src.name}</Pill> : null}
+                          {pot ? <Pill hue={pot.hue}>{pot.name}</Pill> : null}
+                          {!sub.active ? <Pill hue="stone">หยุดพัก</Pill> : null}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="shrink-0 text-right">
-                    <Money value={satangToBaht(monthlySatang)} size="md" kind="spend" />
-                    {sub.frequency === 'yearly' ? (
-                      <p className="text-xs tabular-nums text-muted">{formatTHB(satangToBaht(sub.amount))}/ปี</p>
-                    ) : (
-                      <p className="text-xs text-muted">/เดือน</p>
-                    )}
-                  </div>
-                </button>
+                    <div className="shrink-0 text-right">
+                      <Money value={satangToBaht(monthlySatang)} size="md" kind="spend" />
+                      {sub.frequency === 'yearly' ? (
+                        <p className="text-xs tabular-nums text-muted">{formatTHB(satangToBaht(sub.amount))}/ปี</p>
+                      ) : (
+                        <p className="text-xs text-muted">/เดือน</p>
+                      )}
+                    </div>
+                  </button>
+                </SwipeToDelete>
               </AnimatedRow>
             );
           })}

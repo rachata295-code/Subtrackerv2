@@ -14,6 +14,7 @@ import { SectionHeader } from '../../components/ui/SectionHeader';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { SelectField } from '../../components/ui/SelectField';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { SwipeToDelete } from '../../components/ui/SwipeToDelete';
 import { notify } from '../../components/ui/Toaster';
 import { expectedBalance, forecast, payPeriod, upcomingOutflows } from '../../domain';
 import { parseISODate } from '../../domain/date';
@@ -221,9 +222,22 @@ export default function PlanPage({ today: todayProp }: PlanPageProps = {}) {
     }
   };
 
-  const handleDeletePlan = async (planId: string) => {
+  const handleDeletePlan = async (planId: string, toastMessage?: string): Promise<boolean> => {
     const idx = currentPlans.findIndex((p) => p.id === planId);
     const target = idx >= 0 ? currentPlans[idx] : undefined;
+    const snapshot: UpsertPlanItemInput | null = target
+      ? {
+          periodKey: target.periodKey,
+          name: target.name,
+          amount: target.amount,
+          kind: target.kind,
+          sourceId: target.sourceId,
+          dueOn: target.dueOn,
+          category: target.category,
+          doneTxId: target.doneTxId,
+          sortOrder: target.sortOrder,
+        }
+      : null;
     try {
       await deletePlanItem.mutateAsync(planId);
       if (target) {
@@ -235,9 +249,27 @@ export default function PlanPage({ today: todayProp }: PlanPageProps = {}) {
         exitTimersRef.current.add(timer);
       }
       setPlanSheetOpen(false);
-      notify('ลบรายการแผนแล้ว');
+      let undone = false;
+      notify(toastMessage ?? 'ลบรายการแผนแล้ว', {
+        undo: snapshot
+          ? () => {
+              if (undone) return;
+              undone = true;
+              void upsertPlanItem
+                .mutateAsync(snapshot)
+                .then((restored) => {
+                  setRecentPlanIds((prev) => new Set(prev).add(restored.id));
+                })
+                .catch((err) => {
+                  toast.error(getErrorMessage(err, 'เลิกทำไม่สำเร็จ'));
+                });
+            }
+          : undefined,
+      });
+      return true;
     } catch (err) {
       toast.error(getErrorMessage(err, 'ลบรายการแผนไม่สำเร็จ'));
+      return false;
     }
   };
 
@@ -489,52 +521,58 @@ export default function PlanPage({ today: todayProp }: PlanPageProps = {}) {
                           .filter(Boolean)
                           .join(' ')}
                       >
-                        <ListRow
-                          leading={
-                            parsedDue ? (
-                              <DateBadge day={parsedDue.day} month={parsedDue.month - 1} />
+                        <SwipeToDelete
+                          label={item.name}
+                          disabled={leaving || isBusy}
+                          onDelete={() => handleDeletePlan(item.id, `ลบ${item.name}แล้ว`)}
+                        >
+                          <ListRow
+                            leading={
+                              parsedDue ? (
+                                <DateBadge day={parsedDue.day} month={parsedDue.month - 1} />
+                              ) : (
+                                <span
+                                  aria-hidden="true"
+                                  className={`block h-2.5 w-2.5 rounded-dot ${item.kind === 'save' ? 'bg-teal-mark' : 'bg-stone-mark'}`}
+                                />
+                              )
+                            }
+                            title={item.name}
+                            detail={
+                              <span className="inline-flex flex-wrap items-center gap-1.5">
+                                <Pill hue={item.kind === 'save' ? 'teal' : 'stone'}>{kindLabel}</Pill>
+                                {item.kind === 'pay' ? <span>{CATEGORY_LABELS[item.category]}</span> : null}
+                                {isDone ? <span className="text-positive">ทำแล้ว</span> : null}
+                              </span>
+                            }
+                            amount={item.amount / 100}
+                            onClick={() => {
+                              setEditingPlan(item);
+                              setPlanSheetOpen(true);
+                            }}
+                          />
+                          <div className="flex min-h-tap items-center justify-end gap-2 pb-2">
+                            {isDone ? (
+                              <Button
+                                variant="ghost"
+                                loading={isBusy}
+                                disabled={isBusy}
+                                onClick={() => void handleUncompletePlan(item)}
+                              >
+                                ยกเลิก
+                              </Button>
                             ) : (
-                              <span
-                                aria-hidden="true"
-                                className={`block h-2.5 w-2.5 rounded-dot ${item.kind === 'save' ? 'bg-teal-mark' : 'bg-stone-mark'}`}
-                              />
-                            )
-                          }
-                          title={item.name}
-                          detail={
-                            <span className="inline-flex flex-wrap items-center gap-1.5">
-                              <Pill hue={item.kind === 'save' ? 'teal' : 'stone'}>{kindLabel}</Pill>
-                              {item.kind === 'pay' ? <span>{CATEGORY_LABELS[item.category]}</span> : null}
-                              {isDone ? <span className="text-positive">ทำแล้ว</span> : null}
-                            </span>
-                          }
-                          amount={item.amount / 100}
-                          onClick={() => {
-                            setEditingPlan(item);
-                            setPlanSheetOpen(true);
-                          }}
-                        />
-                        <div className="flex min-h-tap items-center justify-end gap-2 pb-2">
-                          {isDone ? (
-                            <Button
-                              variant="ghost"
-                              loading={isBusy}
-                              disabled={isBusy}
-                              onClick={() => void handleUncompletePlan(item)}
-                            >
-                              ยกเลิก
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="secondary"
-                              loading={isBusy}
-                              disabled={isBusy}
-                              onClick={() => void handleCompletePlan(item)}
-                            >
-                              {item.kind === 'save' ? 'เก็บแล้ว' : 'จ่ายแล้ว'}
-                            </Button>
-                          )}
-                        </div>
+                              <Button
+                                variant="secondary"
+                                loading={isBusy}
+                                disabled={isBusy}
+                                onClick={() => void handleCompletePlan(item)}
+                              >
+                                {item.kind === 'save' ? 'เก็บแล้ว' : 'จ่ายแล้ว'}
+                              </Button>
+                            )}
+                          </div>
+                        </SwipeToDelete>
                       </AnimatedRow>
                     );
                   })}
@@ -666,7 +704,7 @@ export default function PlanPage({ today: todayProp }: PlanPageProps = {}) {
         editing={editingPlan}
         isSubmitting={upsertPlanItem.isPending || deletePlanItem.isPending}
         onSave={handleSavePlan}
-        onDelete={handleDeletePlan}
+        onDelete={(id) => handleDeletePlan(id).then(() => undefined)}
       />
     </>
   );

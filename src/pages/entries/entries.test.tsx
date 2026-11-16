@@ -683,4 +683,40 @@ describe('<EntriesPage>', () => {
       }),
     );
   });
+
+  it('supports swipe-to-delete on a transaction row with undo toast', async () => {
+    class JsdomPointerEvent extends MouseEvent {
+      pointerId: number;
+      pointerType: string;
+      constructor(type: string, params: PointerEventInit = {}) {
+        super(type, params);
+        this.pointerId = params.pointerId ?? 1;
+        this.pointerType = params.pointerType ?? '';
+      }
+    }
+    vi.stubGlobal('PointerEvent', JsdomPointerEvent);
+
+    render(<StatefulHarness initial={makeFixtureClone()} today="2026-11-15" />);
+
+    const row = screen.getByText('ชานม').closest('[data-testid="swipe-track"]') as HTMLElement;
+    expect(row).toBeTruthy();
+
+    // Swipe open -> tap "ลบ"
+    fireEvent.pointerDown(row, { pointerId: 1, clientX: 250, clientY: 20, pointerType: 'touch' });
+    fireEvent.pointerMove(row, { pointerId: 1, clientX: 180, clientY: 20, pointerType: 'touch' });
+    fireEvent.pointerUp(row, { pointerId: 1, clientX: 180, clientY: 20, pointerType: 'touch' });
+
+    const swipeWrapper = row.parentElement!;
+    fireEvent.click(within(swipeWrapper).getByRole('button', { name: 'ลบ' }));
+
+    await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith('tx-nov-tea'), { timeout: ROW_EXIT_MS + 1000 });
+    await waitFor(() => expect(screen.queryByText('ชานม')).toBeNull());
+
+    const deleteToast = await screen.findByText('ลบชานมแล้ว');
+    const toastEl = deleteToast.closest('li') ?? deleteToast.parentElement!.parentElement!;
+    fireEvent.click(within(toastEl).getByRole('button', { name: 'เลิกทำ' }));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('ชานม')).toBeTruthy();
+  });
 });

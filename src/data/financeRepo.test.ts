@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { financeFixture } from '../fixtures/finance';
 import {
+  clearAllData,
   completePlanItem,
   confirmIncome,
   createBalanceCheck,
@@ -1250,5 +1251,149 @@ describe('Phase 2 financeRepo mutations and rollbacks', () => {
     await deleteRecurringIncome('inc-mom-10', client);
     expect(recBuilder.delete).toHaveBeenCalledTimes(1);
     expect(recBuilder.eq).toHaveBeenCalledWith('id', 'inc-mom-10');
+  });
+
+  it('clearAllData({ includeSetup: false }) deletes only data tables in FK-safe child-first order', async () => {
+    const ops: string[] = [];
+    const eqCalls: Array<{ table: string; col: string; val: unknown }> = [];
+    const rpcSpy = vi.fn(async () => ({ error: null }));
+
+    const client = {
+      auth: {
+        getUser: vi.fn(async () => ({ data: { user: { id: 'user-1' } }, error: null })),
+      },
+      rpc: rpcSpy,
+      from: vi.fn((table: string) => {
+        const builder: Record<string, unknown> = {
+          delete: vi.fn(() => {
+            ops.push(`delete:${table}`);
+            return builder;
+          }),
+          eq: vi.fn((col: string, val: unknown) => {
+            eqCalls.push({ table, col, val });
+            return builder;
+          }),
+          then: (onFulfilled: (v: QueryResult) => unknown, onRejected?: (r: unknown) => unknown) =>
+            Promise.resolve({ data: null, error: null }).then(onFulfilled, onRejected),
+        };
+        return builder;
+      }),
+    } as unknown as SupabaseClient;
+
+    await clearAllData({ includeSetup: false }, client);
+
+    expect(ops).toEqual([
+      'delete:balance_checks',
+      'delete:plan_items',
+      'delete:transactions',
+      'delete:bill_payments',
+      'delete:subscriptions',
+      'delete:installments',
+    ]);
+    expect(eqCalls).toEqual([
+      { table: 'balance_checks', col: 'user_id', val: 'user-1' },
+      { table: 'plan_items', col: 'user_id', val: 'user-1' },
+      { table: 'transactions', col: 'user_id', val: 'user-1' },
+      { table: 'bill_payments', col: 'user_id', val: 'user-1' },
+      { table: 'subscriptions', col: 'user_id', val: 'user-1' },
+      { table: 'installments', col: 'user_id', val: 'user-1' },
+    ]);
+    expect(rpcSpy).not.toHaveBeenCalled();
+  });
+
+  it('clearAllData({ includeSetup: true }) deletes data + setup tables in order, resets settings, and runs seed_defaults', async () => {
+    const ops: string[] = [];
+    const rpcSpy = vi.fn(async (fn: string) => {
+      ops.push(`rpc:${fn}`);
+      return { error: null };
+    });
+    let settingsUpsertPayload: unknown = null;
+
+    const client = {
+      auth: {
+        getUser: vi.fn(async () => ({ data: { user: { id: 'user-1' } }, error: null })),
+      },
+      rpc: rpcSpy,
+      from: vi.fn((table: string) => {
+        const settingsResult: QueryResult = {
+          data: { user_id: 'user-1', salary: '10200.00', pay_day: 10, budget_start_period: null },
+          error: null,
+        };
+        const builder: Record<string, unknown> = {
+          delete: vi.fn(() => {
+            ops.push(`delete:${table}`);
+            return builder;
+          }),
+          upsert: vi.fn((payload: unknown) => {
+            ops.push(`upsert:${table}`);
+            settingsUpsertPayload = payload;
+            return builder;
+          }),
+          select: vi.fn(() => builder),
+          eq: vi.fn(() => builder),
+          single: vi.fn(async () => settingsResult),
+          then: (onFulfilled: (v: QueryResult) => unknown, onRejected?: (r: unknown) => unknown) =>
+            Promise.resolve({ data: null, error: null }).then(onFulfilled, onRejected),
+        };
+        return builder;
+      }),
+    } as unknown as SupabaseClient;
+
+    await clearAllData({ includeSetup: true }, client);
+
+    expect(ops).toEqual([
+      'delete:balance_checks',
+      'delete:plan_items',
+      'delete:transactions',
+      'delete:bill_payments',
+      'delete:subscriptions',
+      'delete:installments',
+      'delete:recurring_incomes',
+      'delete:pots',
+      'delete:payment_sources',
+      'upsert:settings',
+      'rpc:seed_defaults',
+    ]);
+    expect(settingsUpsertPayload).toEqual({
+      user_id: 'user-1',
+      salary: '10200.00',
+      pay_day: 10,
+      budget_start_period: null,
+    });
+  });
+
+  it('clearAllData stops and throws Thai error if a table delete fails mid-way or user is unauthenticated', async () => {
+    const ops: string[] = [];
+    const client = {
+      auth: {
+        getUser: vi.fn(async () => ({ data: { user: { id: 'user-1' } }, error: null })),
+      },
+      rpc: vi.fn(),
+      from: vi.fn((table: string) => {
+        const builder: Record<string, unknown> = {
+          delete: vi.fn(() => {
+            ops.push(table);
+            return builder;
+          }),
+          eq: vi.fn(() => builder),
+          then: (onFulfilled: (v: QueryResult) => unknown, onRejected?: (r: unknown) => unknown) =>
+            Promise.resolve(
+              table === 'transactions' ? { data: null, error: { message: 'db failure' } } : { data: null, error: null },
+            ).then(onFulfilled, onRejected),
+        };
+        return builder;
+      }),
+    } as unknown as SupabaseClient;
+
+    await expect(clearAllData({ includeSetup: true }, client)).rejects.toThrow(/ล้างข้อมูลไม่สำเร็จ/);
+    expect(ops).toEqual(['balance_checks', 'plan_items', 'transactions']);
+
+    const unauthClient = {
+      auth: {
+        getUser: vi.fn(async () => ({ data: { user: null }, error: null })),
+      },
+      from: vi.fn(),
+    } as unknown as SupabaseClient;
+    await expect(clearAllData({ includeSetup: false }, unauthClient)).rejects.toThrow(/เข้าสู่ระบบ/);
   });
 });

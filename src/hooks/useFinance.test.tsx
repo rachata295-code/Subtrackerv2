@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { financeFixture } from '../fixtures/finance';
 import * as financeRepo from '../data/financeRepo';
 import {
+  useClearAllData,
   useCompletePlanItem,
   useConfirmIncome,
   useCreateBalanceCheck,
@@ -586,5 +587,68 @@ describe('useCreateTransactions optimistic update and rollback', () => {
     expect(deleteIncomeSpy).toHaveBeenCalledTimes(1);
     expect(invalidateSpy).toHaveBeenCalledTimes(8);
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['finance'] });
+  });
+
+  it('useClearAllData clears fixture data appropriately with includeSetup false vs true', async () => {
+    vi.stubEnv('VITE_USE_FIXTURES', '1');
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(
+      () => ({
+        finance: useFinanceData(),
+        clearAll: useClearAllData(),
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.clearAll.mutateAsync({ includeSetup: false });
+    });
+
+    await waitFor(() => expect(result.current.finance.data?.transactions).toEqual([]));
+    expect(result.current.finance.data?.payments).toEqual([]);
+    expect(result.current.finance.data?.balanceChecks).toEqual([]);
+    expect(result.current.finance.data?.planItems).toEqual([]);
+    expect(result.current.finance.data?.subscriptions).toEqual([]);
+    expect(result.current.finance.data?.installments).toEqual([]);
+    // Setup stays intact when includeSetup is false.
+    expect(result.current.finance.data?.sources).toEqual(financeFixture.sources);
+    expect(result.current.finance.data?.pots).toEqual(financeFixture.pots);
+    expect(result.current.finance.data?.recurringIncomes).toEqual(financeFixture.recurringIncomes);
+    expect(result.current.finance.data?.settings).toEqual(financeFixture.settings);
+
+    await act(async () => {
+      await result.current.clearAll.mutateAsync({ includeSetup: true });
+    });
+
+    await waitFor(() => expect(result.current.finance.data?.recurringIncomes).toEqual([]));
+    expect(result.current.finance.data?.sources).toHaveLength(3);
+    expect(result.current.finance.data?.pots).toHaveLength(2);
+    expect(result.current.finance.data?.settings).toEqual({
+      userId: financeFixture.settings.userId,
+      salary: 1_020_000,
+      payDay: 10,
+      budgetStartPeriod: null,
+    });
+  });
+
+  it('useClearAllData invalidates queries even when remote clearAllData fails mid-way', async () => {
+    vi.stubEnv('VITE_USE_FIXTURES', '0');
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co');
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key');
+
+    vi.spyOn(financeRepo, 'loadFinanceData').mockResolvedValue(financeFixture);
+    const clearSpy = vi.spyOn(financeRepo, 'clearAllData').mockRejectedValueOnce(new Error('ล้างข้อมูลไม่สำเร็จ'));
+
+    const { queryClient, wrapper } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+
+    const { result } = renderHook(() => useClearAllData(), { wrapper });
+
+    await act(async () => {
+      await expect(result.current.mutateAsync({ includeSetup: false })).rejects.toThrow(/ล้างข้อมูลไม่สำเร็จ/);
+    });
+
+    expect(clearSpy).toHaveBeenCalledWith({ includeSetup: false });
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
   });
 });

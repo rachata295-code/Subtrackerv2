@@ -820,5 +820,82 @@ describe('<BillsPage>', () => {
       vi.useRealTimers();
       expect(await screen.findByText(/ลบไม่สำเร็จ.*สิทธิ์ไม่เพียงพอ/)).toBeTruthy();
     });
+
+    it('supports swipe-to-delete with undo on SubscriptionsTab and InstallmentsTab', async () => {
+      class JsdomPointerEvent extends MouseEvent {
+        pointerId: number;
+        pointerType: string;
+        constructor(type: string, params: PointerEventInit = {}) {
+          super(type, params);
+          this.pointerId = params.pointerId ?? 1;
+          this.pointerType = params.pointerType ?? '';
+        }
+      }
+      vi.stubGlobal('PointerEvent', JsdomPointerEvent);
+
+      deleteSubscriptionSpy.mockImplementation(async (id) => {
+        if (mockData) {
+          const next = { ...mockData, subscriptions: mockData.subscriptions.filter((s) => s.id !== id) };
+          mockData = next;
+          setMockDataState?.(next);
+        }
+      });
+      upsertSubscriptionSpy.mockImplementation(async (input) => {
+        const saved: Subscription = { id: input.id ?? 'sub-restored', ...input };
+        if (mockData) {
+          const next = { ...mockData, subscriptions: [...mockData.subscriptions, saved] };
+          mockData = next;
+          setMockDataState?.(next);
+        }
+        return saved;
+      });
+      deleteInstallmentSpy.mockImplementation(async (id) => {
+        if (mockData) {
+          const next = { ...mockData, installments: mockData.installments.filter((i) => i.id !== id) };
+          mockData = next;
+          setMockDataState?.(next);
+        }
+      });
+      upsertInstallmentSpy.mockImplementation(async (input) => {
+        const saved: Installment = { id: input.id ?? 'inst-restored', ...input };
+        if (mockData) {
+          const next = { ...mockData, installments: [...mockData.installments, saved] };
+          mockData = next;
+          setMockDataState?.(next);
+        }
+        return saved;
+      });
+
+      renderPage('2026-11-15');
+
+      // Subscriptions tab: swipe full left to delete Claude, then undo
+      fireEvent.click(screen.getByRole('tab', { name: 'สมาชิก' }));
+      const claudeTrack = screen.getByTestId('subscription-item-sub-claude').closest('[data-testid="swipe-track"]') as HTMLElement;
+      fireEvent.pointerDown(claudeTrack, { pointerId: 1, clientX: 300, clientY: 20, pointerType: 'touch' });
+      fireEvent.pointerMove(claudeTrack, { pointerId: 1, clientX: 80, clientY: 20, pointerType: 'touch' });
+      fireEvent.pointerUp(claudeTrack, { pointerId: 1, clientX: 80, clientY: 20, pointerType: 'touch' });
+
+      await waitFor(() => expect(deleteSubscriptionSpy).toHaveBeenCalledWith('sub-claude'));
+      const subToast = await screen.findByText('ลบClaudeแล้ว');
+      const subToastEl = subToast.closest('li') ?? subToast.parentElement!.parentElement!;
+      fireEvent.click(within(subToastEl).getByRole('button', { name: 'เลิกทำ' }));
+      await waitFor(() => expect(upsertSubscriptionSpy).toHaveBeenCalled());
+      expect(await screen.findByText('Claude')).toBeTruthy();
+
+      // Installments tab: swipe open and tap "ลบ" on AirPods, then undo
+      fireEvent.click(screen.getByRole('tab', { name: 'ผ่อน' }));
+      const airpodsTrack = screen.getByTestId('installment-item-inst-airpods').closest('[data-testid="swipe-track"]') as HTMLElement;
+      fireEvent.pointerDown(airpodsTrack, { pointerId: 2, clientX: 250, clientY: 20, pointerType: 'touch' });
+      fireEvent.pointerMove(airpodsTrack, { pointerId: 2, clientX: 180, clientY: 20, pointerType: 'touch' });
+      fireEvent.pointerUp(airpodsTrack, { pointerId: 2, clientX: 180, clientY: 20, pointerType: 'touch' });
+      fireEvent.click(within(airpodsTrack.parentElement!).getByRole('button', { name: 'ลบ' }));
+
+      await waitFor(() => expect(deleteInstallmentSpy).toHaveBeenCalledWith('inst-airpods'));
+      const instToast = await screen.findByText('ลบAirPodsแล้ว');
+      const instToastEl = instToast.closest('li') ?? instToast.parentElement!.parentElement!;
+      fireEvent.click(within(instToastEl).getByRole('button', { name: 'เลิกทำ' }));
+      await waitFor(() => expect(upsertInstallmentSpy).toHaveBeenCalled());
+      expect(await screen.findByText('AirPods')).toBeTruthy();
+    });
   });
 });

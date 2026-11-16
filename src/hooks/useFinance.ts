@@ -6,6 +6,7 @@ import {
   useQuery,
 } from '@tanstack/react-query';
 import {
+  clearAllData,
   completePlanItem,
   confirmIncome,
   createBalanceCheck,
@@ -31,6 +32,7 @@ import {
   upsertRecurringIncome,
   upsertSource,
   upsertSubscription,
+  type ClearAllDataInput,
 } from '../data/financeRepo';
 import { financeFixture } from '../fixtures/finance';
 import { getSupabaseConfigError, isFixturesMode } from '../lib/supabase';
@@ -642,4 +644,61 @@ export function useConfirmIncome(): UseFinanceMutation<ConfirmIncomeInput, Trans
       };
     },
   );
+}
+
+export function useClearAllData(): UseFinanceMutation<ClearAllDataInput> {
+  const queryClient = useResolvedQueryClient();
+
+  const mutation = useMutation<void, Error, ClearAllDataInput>(
+    {
+      mutationFn: async (input) => {
+        if (isFixturesMode()) {
+          const current = queryClient.getQueryData<FinanceData>(FINANCE_QUERY_KEY) ?? financeFixture;
+          const nextData: FinanceData = input.includeSetup
+            ? {
+                settings: {
+                  userId: current.settings.userId,
+                  salary: 1_020_000,
+                  payDay: 10,
+                  budgetStartPeriod: null,
+                },
+                sources: financeFixture.sources.map((s) => ({ ...s })),
+                pots: financeFixture.pots.map((p) => ({ ...p })),
+                subscriptions: [],
+                installments: [],
+                transactions: [],
+                payments: [],
+                balanceChecks: [],
+                planItems: [],
+                recurringIncomes: [],
+              }
+            : {
+                ...current,
+                subscriptions: [],
+                installments: [],
+                transactions: [],
+                payments: [],
+                balanceChecks: [],
+                planItems: [],
+              };
+          queryClient.setQueryData(FINANCE_QUERY_KEY, nextData);
+          return;
+        }
+        try {
+          await clearAllData(input);
+        } finally {
+          // Invalidate on both success and failure so a mid-way remote failure refreshes the UI to match DB state.
+          await queryClient.invalidateQueries();
+        }
+      },
+    },
+    queryClient,
+  );
+
+  return {
+    mutate: mutation.mutate,
+    mutateAsync: mutation.mutateAsync,
+    isPending: mutation.isPending,
+    error: mutation.error,
+  };
 }
