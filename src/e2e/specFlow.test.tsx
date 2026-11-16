@@ -202,19 +202,20 @@ describe('End-to-end Phase 2 "วันจริง" walkthrough in fixture mode
     expect(screen.getByTestId('owed').textContent).toBe('฿2,458.93');
     expect(screen.getByTestId('income-due-cards').textContent).toContain('เงินจากแม่เข้าแล้ว?');
     expect(screen.getByTestId('income-due-cards').textContent).toContain('฿5,100.00');
-    expect(screen.getByTestId('available-card').textContent).toContain('−฿1,582.07');
+    expect(screen.getByTestId('available-card').textContent).toContain('฿3,821.07');
 
     // Navigate to /plan and check Step 0 numbers
     fireEvent.click(screen.getByRole('link', { name: 'แผน' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'แผน' })).toBeTruthy();
     expect(screen.getByTestId('account-balance-card').textContent).toContain('฿4,680.00');
     const forecastCard0 = screen.getByTestId('forecast-card');
-    expect(forecastCard0.textContent).toContain('−฿1,582.07');
+    // available = 4,680 + 5,100 − 2,458.93 (card 1,077 + SPayLater 1,381.93, full unpaid bills) − 3,500 plans
+    expect(forecastCard0.textContent).toContain('฿3,821.07');
     expect(forecastCard0.textContent).toContain('+฿5,100.00');
-    // Card bill ฿1,077.00 is already inside potsLeft (reserved), so forecast.bills is ฿0.00 (no double deduction)
-    expect(forecastCard0.textContent).toContain('−฿0.00');
+    expect(forecastCard0.textContent).toContain('−฿2,458.93');
     expect(forecastCard0.textContent).toContain('−฿3,500.00');
-    expect(forecastCard0.textContent).toContain('−฿7,862.07');
+    // Pot leftovers are not part of "ใช้ได้จริง" anymore.
+    expect(forecastCard0.textContent).not.toContain('ที่เหลือในก้อน');
     expect(screen.getByTestId('forecast-timeline').textContent).toContain('฿3,603.00');
 
     // ─── Step 1: จดข้าว 3 อย่างด้วย 45+60+35 (= ฿140.00) บนหน้าภาพรวม ───
@@ -231,7 +232,7 @@ describe('End-to-end Phase 2 "วันจริง" walkthrough in fixture mode
       expect(screen.getByTestId('play-left').textContent).toBe('฿522.07');
     });
     expect(screen.getByTestId('essential-pot').textContent).toContain('฿7,200.00');
-    expect(screen.getByTestId('available-card').textContent).toContain('−฿1,582.07');
+    expect(screen.getByTestId('available-card').textContent).toContain('฿3,681.07');
 
     // ─── Step 2: กด hot bar ข้าวมันไก่ ฿45 (ผูก pot-essential ใช้จ่ายจำเป็น) ───
     fireEvent.click(screen.getByRole('button', { name: 'ข้าวมันไก่ ฿45' }));
@@ -239,14 +240,13 @@ describe('End-to-end Phase 2 "วันจริง" walkthrough in fixture mode
       expect(screen.getByTestId('essential-pot').textContent).toContain('฿7,155.00');
     });
     expect(screen.getByTestId('play-left').textContent).toBe('฿522.07');
-    expect(screen.getByTestId('available-card').textContent).toContain('−฿1,582.07');
+    expect(screen.getByTestId('available-card').textContent).toContain('฿3,636.07');
 
     // ─── Step 3: เช็กยอดเจอหายไป ฿130 (ในแอปควรเหลือ ฿4,495.00 vs ยอดจริง ฿4,365.00) ───
     fireEvent.click(screen.getByRole('link', { name: 'แผน' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'แผน' })).toBeTruthy();
     expect(screen.getByTestId('account-balance-card').textContent).toContain('฿4,495.00');
-    expect(screen.getByTestId('forecast-card').textContent).toContain('−฿1,582.07');
-    expect(screen.getByTestId('forecast-card').textContent).toContain('−฿7,677.07');
+    expect(screen.getByTestId('forecast-card').textContent).toContain('฿3,636.07');
 
     fireEvent.click(screen.getByRole('button', { name: 'เช็กกับยอดจริง' }));
     const checkDialog = screen.getByRole('dialog');
@@ -273,9 +273,8 @@ describe('End-to-end Phase 2 "วันจริง" walkthrough in fixture mode
       expect(screen.queryByRole('dialog')).toBeNull();
     });
     expect(screen.getByTestId('account-balance-card').textContent).toContain('฿4,365.00');
-    // PotsLeft is unchanged by unknown adjustment (472.07 + 7,155.00 = 7,627.07), while available drops by ฿80 to −฿1,662.07
-    expect(screen.getByTestId('forecast-card').textContent).toContain('−฿7,627.07');
-    expect(screen.getByTestId('forecast-card').textContent).toContain('−฿1,662.07');
+    // The ฿80 'unknown' adjustment lowers the real balance, so available drops by ฿80 to ฿3,506.07
+    expect(screen.getByTestId('forecast-card').textContent).toContain('฿3,506.07');
     expect(screen.getByTestId('balance-check-history').textContent).toContain('ต่าง −฿80.00 (ลืมจด)');
 
     // ─── Step 6: แผนรอบนี้ กด เก็บแล้ว (฿2,000.00) ───
@@ -284,17 +283,16 @@ describe('End-to-end Phase 2 "วันจริง" walkthrough in fixture mode
     await waitFor(() => {
       expect(screen.getByTestId('account-balance-card').textContent).toContain('฿2,365.00');
     });
-    // Plans remaining drops from 3,500 to 1,500; potsLeft stays 7,627.07; available stays −฿1,662.07!
+    // Plans remaining drops from 3,500 to 1,500 while the balance drops by the same 2,000: available stays ฿3,506.07
     expect(screen.getByTestId('forecast-card').textContent).toContain('−฿1,500.00');
-    expect(screen.getByTestId('forecast-card').textContent).toContain('−฿7,627.07');
-    expect(screen.getByTestId('forecast-card').textContent).toContain('−฿1,662.07');
+    expect(screen.getByTestId('forecast-card').textContent).toContain('฿3,506.07');
 
     // Verify Overview pots did NOT change from unknown/savings and AvailableCard matches /plan
     fireEvent.click(screen.getByRole('link', { name: 'ภาพรวม' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'ภาพรวม' })).toBeTruthy();
     expect(screen.getByTestId('play-left').textContent).toBe('฿472.07');
     expect(screen.getByTestId('essential-pot').textContent).toContain('฿7,155.00');
-    expect(screen.getByTestId('available-card').textContent).toContain('−฿1,662.07');
+    expect(screen.getByTestId('available-card').textContent).toContain('฿3,506.07');
 
     // ─── Step 7: เงินจากแม่เข้า (กด เข้าแล้ว ฿5,100.00) ───
     const incomeCard = screen.getByTestId('income-due-cards');
@@ -302,16 +300,16 @@ describe('End-to-end Phase 2 "วันจริง" walkthrough in fixture mode
     await waitFor(() => {
       expect(screen.queryByTestId('income-due-cards')).toBeNull();
     });
-    // Overview available flips to +฿3,437.93 while pots remain untouched
+    // Overview available rises by the ฿5,100 that just arrived (฿8,606.07) while pots remain untouched
     expect(screen.getByTestId('play-left').textContent).toBe('฿472.07');
     expect(screen.getByTestId('essential-pot').textContent).toContain('฿7,155.00');
-    expect(screen.getByTestId('available-card').textContent).toContain('฿3,437.93');
+    expect(screen.getByTestId('available-card').textContent).toContain('฿8,606.07');
 
-    // Verify /plan matches Overview "ใช้ได้จริง" (฿3,437.93) and expected balance is ฿7,465.00
+    // Verify /plan matches Overview "ใช้ได้จริง" (฿8,606.07) and expected balance is ฿7,465.00
     fireEvent.click(screen.getByRole('link', { name: 'แผน' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'แผน' })).toBeTruthy();
     expect(screen.getByTestId('account-balance-card').textContent).toContain('฿7,465.00');
-    expect(screen.getByTestId('forecast-card').textContent).toContain('฿3,437.93');
+    expect(screen.getByTestId('forecast-card').textContent).toContain('฿8,606.07');
     expect(screen.getByTestId('forecast-timeline').textContent).toContain('฿6,388.00');
 
     // Verify /entries?view=summary shows totalSpend ฿3,193.93, savedThisPeriod ฿2,000.00, and unknownTotal ฿80.00

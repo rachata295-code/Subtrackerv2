@@ -5,7 +5,7 @@ import { forecast } from './forecast';
 import { potStatus } from './pots';
 
 describe('SPEC §5 C5: forecast', () => {
-  it('SPEC §5 C5: does NOT double-subtract the 1,077 credit card bill in both bills and potsLeft', () => {
+  it('SPEC §5 C5: subtracts the full unpaid bills (1,077 card + 1,381.93 SPayLater, both inside the play pot) and ignores pot leftovers', () => {
     const playPot = financeFixture.pots.find((p) => p.id === 'pot-play')!;
     const essentialPot = financeFixture.pots.find((p) => p.id === 'pot-essential')!;
 
@@ -16,17 +16,18 @@ describe('SPEC §5 C5: forecast', () => {
 
     const result = forecast(financeFixture, 'src-bank', '2026-11-15');
 
-    // start = 468,000; incoming (24 Nov) = 510,000; bills (potId=null only) = 0; plans = 350,000; potsLeft = 786,207
+    // start = 468,000; incoming (24 Nov) = 510,000; bills = 245,893 (in-pot bills still leave the bank); plans = 350,000.
+    // potsLeft (786,207) is informational only and is NOT part of available.
     expect(result.start).toBe(468_000);
     expect(result.incoming).toBe(510_000);
-    expect(result.bills).toBe(0);
+    expect(result.bills).toBe(245_893);
     expect(result.plans).toBe(350_000);
     expect(result.potsLeft).toBe(786_207);
-    expect(result.available).toBe(468_000 + 510_000 - 0 - 350_000 - 786_207);
-    expect(result.available).toBe(-158_207);
+    expect(result.available).toBe(468_000 + 510_000 - 245_893 - 350_000);
+    expect(result.available).toBe(382_107);
   });
 
-  it('SPEC §5 C5: subtracts installments with potId = null in bills without changing potsLeft', () => {
+  it('SPEC §5 C5: adds a separate installment charge to bills without changing potsLeft', () => {
     const withSeparateInstallment: FinanceData = {
       ...financeFixture,
       installments: [
@@ -44,9 +45,9 @@ describe('SPEC §5 C5: forecast', () => {
     };
 
     const result = forecast(withSeparateInstallment, 'src-bank', '2026-11-15');
-    expect(result.bills).toBe(50_000);
+    expect(result.bills).toBe(245_893 + 50_000);
     expect(result.potsLeft).toBe(786_207);
-    expect(result.available).toBe(468_000 + 510_000 - 50_000 - 350_000 - 786_207);
+    expect(result.available).toBe(468_000 + 510_000 - 245_893 - 50_000 - 350_000);
   });
 
   it('SPEC §5 C5: does not count uncertain/future parttime income in forecast incoming, only confirmed recurring incomes', () => {
