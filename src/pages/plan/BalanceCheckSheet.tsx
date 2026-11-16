@@ -8,6 +8,7 @@ import { Money } from '../../components/ui/Money';
 import { TextField } from '../../components/ui/TextField';
 import { notify } from '../../components/ui/Toaster';
 import { hotbarItems } from '../../domain';
+import { useDraft } from '../../hooks/useDraft';
 import { useCreateBalanceCheck, useCreateTransaction } from '../../hooks/useFinance';
 import { formatTHB } from '../../lib/money';
 import {
@@ -42,6 +43,13 @@ export interface BalanceCheckSheetProps {
 
 const EXPENSE_QUICK_CATEGORIES = OUT_CATEGORIES.filter((c) => c !== 'savings' && c !== 'unknown');
 
+interface QuickMissedDraftState {
+  amountBaht: number | null;
+  date: ISODate;
+  category: Category;
+  note: string;
+}
+
 interface QuickMissedFormProps {
   mode: 'out' | 'in';
   initialAmountBaht: number | null;
@@ -66,10 +74,16 @@ function QuickMissedForm({
   onSubmitDone,
 }: QuickMissedFormProps) {
   const createTransaction = useCreateTransaction();
-  const [amountBaht, setAmountBaht] = useState<number | null>(initialAmountBaht);
-  const [date, setDate] = useState<ISODate>(today);
-  const [category, setCategory] = useState<Category>(mode === 'in' ? 'parttime' : 'food');
-  const [note, setNote] = useState('');
+  const [draft, setDraft, clearMissedDraft] = useDraft<QuickMissedDraftState>(
+    `balance-check-missed:${sourceId}:${mode}`,
+    () => ({
+      amountBaht: initialAmountBaht,
+      date: today,
+      category: mode === 'in' ? 'parttime' : 'food',
+      note: '',
+    }),
+  );
+  const { amountBaht, date, category, note } = draft;
   const [amountError, setAmountError] = useState<string>();
   const [dateError, setDateError] = useState<string>();
 
@@ -99,6 +113,7 @@ function QuickMissedForm({
         category,
         note: note.trim(),
       });
+      clearMissedDraft();
       notify(mode === 'in' ? 'บันทึกเงินเข้าแล้ว' : 'บันทึกแล้ว');
       onSubmitDone();
     } catch (err) {
@@ -117,7 +132,7 @@ function QuickMissedForm({
         value={amountBaht}
         error={amountError}
         onChange={(v) => {
-          setAmountBaht(v);
+          setDraft((prev) => ({ ...prev, amountBaht: v }));
           setAmountError(undefined);
         }}
       />
@@ -127,7 +142,7 @@ function QuickMissedForm({
         value={date}
         error={dateError}
         onChange={(e) => {
-          setDate(e.target.value);
+          setDraft((prev) => ({ ...prev, date: e.target.value }));
           setDateError(undefined);
         }}
       />
@@ -143,7 +158,7 @@ function QuickMissedForm({
               key={cat}
               type="button"
               aria-pressed={selected}
-              onClick={() => setCategory(cat)}
+              onClick={() => setDraft((prev) => ({ ...prev, category: cat }))}
               className={[
                 'pressable min-h-tap rounded-pill px-3 text-xs font-medium',
                 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2',
@@ -160,19 +175,31 @@ function QuickMissedForm({
         label="โน้ต"
         placeholder={mode === 'in' ? 'เช่น ค่าพาร์ทไทม์, คืนเงิน' : 'เช่น กาแฟ, ข้าวเที่ยง'}
         value={note}
-        onChange={(e) => setNote(e.target.value)}
+        onChange={(e) => setDraft((prev) => ({ ...prev, note: e.target.value }))}
       />
 
       <div className="flex items-center gap-2">
         <Button type="submit" variant="secondary" loading={isSubmitting || createTransaction.isPending}>
           {mode === 'in' ? 'บันทึกเงินเข้า' : 'เพิ่มรายจ่าย'}
         </Button>
-        <Button type="button" variant="ghost" onClick={onCancel}>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => {
+            clearMissedDraft();
+            onCancel();
+          }}
+        >
           ยกเลิก
         </Button>
       </div>
     </form>
   );
+}
+
+interface BalanceCheckDraftState {
+  actualBaht: number | null;
+  quickMode: 'out' | 'in' | null;
 }
 
 function BalanceCheckForm({
@@ -186,9 +213,22 @@ function BalanceCheckForm({
   const createBalanceCheck = useCreateBalanceCheck();
   const createTransaction = useCreateTransaction();
 
-  const [actualBaht, setActualBaht] = useState<number | null>(null);
+  const [draft, setDraft, clearDraft] = useDraft<BalanceCheckDraftState>(
+    `balance-check:${bank.id}`,
+    () => ({
+      actualBaht: null,
+      quickMode: null,
+    }),
+  );
+  const { actualBaht, quickMode } = draft;
   const [amountError, setAmountError] = useState<string>();
-  const [quickMode, setQuickMode] = useState<'out' | 'in' | null>(null);
+
+  const setActualBaht = (next: number | null) => {
+    setDraft((prev) => ({ ...prev, actualBaht: next }));
+  };
+  const setQuickMode = (next: 'out' | 'in' | null) => {
+    setDraft((prev) => ({ ...prev, quickMode: next }));
+  };
 
   const isInitial = expected === null;
 
@@ -243,6 +283,7 @@ function BalanceCheckForm({
         expectedBefore: expected,
         adjustment,
       });
+      clearDraft();
       notify(isInitial ? 'ตั้งยอดเริ่มต้นแล้ว' : 'บันทึกการเช็กยอดแล้ว');
       onClose();
     } catch (err) {

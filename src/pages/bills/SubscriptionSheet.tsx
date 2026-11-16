@@ -6,6 +6,7 @@ import { HoldToDelete } from '../../components/ui/HoldToDelete';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { TextField } from '../../components/ui/TextField';
 import { notify } from '../../components/ui/Toaster';
+import { useDraft } from '../../hooks/useDraft';
 import { useDeleteSubscription, useUpsertSubscription } from '../../hooks/useFinance';
 import type { FinanceData, Subscription } from '../../types/finance';
 import { SelectField } from '../../components/ui/SelectField';
@@ -24,12 +25,24 @@ export interface SubscriptionSheetProps {
   initial?: Subscription;
 }
 
+const SUBSCRIPTION_DRAFT_KEY = 'subscription';
+
 interface FormErrors {
   name?: string;
   amount?: string;
   billingDay?: string;
   billingMonth?: string;
   sourceId?: string;
+}
+
+interface SubscriptionDraftState {
+  name: string;
+  amount: number | null;
+  frequency: 'monthly' | 'yearly';
+  billingDayText: string;
+  billingMonthText: string;
+  sourceId: string;
+  potId: string;
 }
 
 function defaultSourceId(data: FinanceData, initial?: Subscription): string {
@@ -55,18 +68,23 @@ function SubscriptionForm({
   const upsertSubscription = useUpsertSubscription();
   const deleteSubscription = useDeleteSubscription();
   const playPot = resolvePlayPot(data.pots);
+  const fallbackSourceId = defaultSourceId(data, initial);
 
-  const [name, setName] = useState(initial?.name ?? '');
-  const [amount, setAmount] = useState<number | null>(initial ? satangToBaht(initial.amount) : null);
-  const [frequency, setFrequency] = useState<'monthly' | 'yearly'>(initial?.frequency ?? 'monthly');
-  const [billingDayText, setBillingDayText] = useState(initial ? String(initial.billingDay) : '');
-  const [billingMonthText, setBillingMonthText] = useState(
-    initial?.billingMonth ? String(initial.billingMonth) : '1',
+  const [draft, setDraft, clearDraft] = useDraft<SubscriptionDraftState>(
+    SUBSCRIPTION_DRAFT_KEY,
+    () => ({
+      name: initial?.name ?? '',
+      amount: initial ? satangToBaht(initial.amount) : null,
+      frequency: initial?.frequency ?? 'monthly',
+      billingDayText: initial ? String(initial.billingDay) : '',
+      billingMonthText: initial?.billingMonth ? String(initial.billingMonth) : '1',
+      sourceId: fallbackSourceId,
+      potId: initial ? (initial.potId ?? '') : (playPot?.id ?? ''),
+    }),
+    { enabled: !initial },
   );
-  const [sourceId, setSourceId] = useState(() => defaultSourceId(data, initial));
-  const [potId, setPotId] = useState<string>(() =>
-    initial ? (initial.potId ?? '') : (playPot?.id ?? ''),
-  );
+
+  const { name, amount, frequency, billingDayText, billingMonthText, potId } = draft;
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
 
@@ -77,6 +95,10 @@ function SubscriptionForm({
         .map((s) => ({ value: s.id, label: s.name })),
     [data.sources, initial?.sourceId],
   );
+
+  const sourceId = sourceOptions.some((o) => o.value === draft.sourceId)
+    ? draft.sourceId
+    : fallbackSourceId;
 
   const potOptions = useMemo(
     () => [
@@ -125,6 +147,9 @@ function SubscriptionForm({
         potId: potId || null,
         active: initial?.active ?? true,
       });
+      if (!initial) {
+        clearDraft();
+      }
       onClose();
       if (initial) {
         notify('แก้ไขสมาชิกแล้ว', {
@@ -178,7 +203,7 @@ function SubscriptionForm({
         value={name}
         error={errors.name}
         onChange={(e) => {
-          setName(e.target.value);
+          setDraft((prev) => ({ ...prev, name: e.target.value }));
           setErrors((prev) => ({ ...prev, name: undefined }));
         }}
       />
@@ -188,7 +213,7 @@ function SubscriptionForm({
         value={amount}
         error={errors.amount}
         onChange={(v) => {
-          setAmount(v);
+          setDraft((prev) => ({ ...prev, amount: v }));
           setErrors((prev) => ({ ...prev, amount: undefined }));
         }}
       />
@@ -203,7 +228,7 @@ function SubscriptionForm({
           ]}
           value={frequency}
           onChange={(next) => {
-            setFrequency(next);
+            setDraft((prev) => ({ ...prev, frequency: next }));
             setErrors((prev) => ({ ...prev, billingMonth: undefined }));
           }}
         />
@@ -216,7 +241,7 @@ function SubscriptionForm({
         value={billingDayText}
         error={errors.billingDay}
         onChange={(e) => {
-          setBillingDayText(e.target.value);
+          setDraft((prev) => ({ ...prev, billingDayText: e.target.value }));
           setErrors((prev) => ({ ...prev, billingDay: undefined }));
         }}
       />
@@ -228,7 +253,7 @@ function SubscriptionForm({
           value={billingMonthText}
           error={errors.billingMonth}
           onChange={(e) => {
-            setBillingMonthText(e.target.value);
+            setDraft((prev) => ({ ...prev, billingMonthText: e.target.value }));
             setErrors((prev) => ({ ...prev, billingMonth: undefined }));
           }}
         />
@@ -240,7 +265,7 @@ function SubscriptionForm({
         value={sourceId}
         error={errors.sourceId}
         onChange={(e) => {
-          setSourceId(e.target.value);
+          setDraft((prev) => ({ ...prev, sourceId: e.target.value }));
           setErrors((prev) => ({ ...prev, sourceId: undefined }));
         }}
       />
@@ -249,7 +274,7 @@ function SubscriptionForm({
         label="ก้อนเงิน"
         options={potOptions}
         value={potId}
-        onChange={(e) => setPotId(e.target.value)}
+        onChange={(e) => setDraft((prev) => ({ ...prev, potId: e.target.value }))}
       />
 
       <Button type="submit" variant="primary" size="lg" loading={saving}>
