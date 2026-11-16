@@ -64,6 +64,43 @@ describe('<BottomSheet>', () => {
     expect(dialog.getAttribute('data-vaul-drawer-direction')).toBe('bottom');
     expect(dialog.className).toContain('rounded-t-card');
     expect(dialog.querySelector('.h-1.w-8')).not.toBeNull();
+    expect(dialog.querySelector('[data-vaul-handle]')).not.toBeNull();
+    expect(dialog.style.maxHeight).toBe('calc(var(--vvh) * 0.9)');
+  });
+
+  it('at 375px uses handleOnly so dragging inside the sheet content does not close the sheet', () => {
+    mockMatchMedia(375);
+    if (!HTMLElement.prototype.setPointerCapture) {
+      HTMLElement.prototype.setPointerCapture = () => {};
+    }
+    if (!HTMLElement.prototype.releasePointerCapture) {
+      HTMLElement.prototype.releasePointerCapture = () => {};
+    }
+
+    const onOpenChange = vi.fn();
+    render(
+      <BottomSheet open onOpenChange={onOpenChange} title="เพิ่มรายการ">
+        <div data-testid="sheet-body">
+          <input aria-label="ช่องกรอก" />
+          <p>เนื้อหาที่เลื่อนได้</p>
+        </div>
+      </BottomSheet>,
+    );
+
+    const body = screen.getByTestId('sheet-body');
+    const input = screen.getByLabelText('ช่องกรอก');
+    input.focus();
+
+    fireEvent.pointerDown(body, { pointerId: 1, clientY: 100, pageY: 100 });
+    fireEvent.pointerMove(body, { pointerId: 1, clientY: 450, pageY: 450 });
+    fireEvent.pointerUp(body, { pointerId: 1, clientY: 450, pageY: 450 });
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+
+    // Escape still closes on mobile
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it('at 1280px renders a full-height right panel without handle bar and closes on Escape', () => {

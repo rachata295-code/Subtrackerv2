@@ -6,6 +6,7 @@ import { HoldToDelete } from '../../components/ui/HoldToDelete';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { SelectField } from '../../components/ui/SelectField';
 import { TextField } from '../../components/ui/TextField';
+import { useDraft } from '../../hooks/useDraft';
 import { latestBalanceCheckForSource } from '../plan/planUtils';
 import { isValidISODate } from './entriesUtils';
 import {
@@ -34,10 +35,22 @@ export interface EntrySheetProps {
   isSubmitting?: boolean;
 }
 
+const ENTRY_DRAFT_KEY = 'entry';
+
 const DIRECTION_OPTIONS: { value: 'out' | 'in'; label: string }[] = [
   { value: 'out', label: 'รายจ่าย' },
   { value: 'in', label: 'รายรับ' },
 ];
+
+interface EntryDraftState {
+  direction: 'out' | 'in';
+  amount: number | null;
+  sourceId: string;
+  potId: string;
+  category: Category;
+  date: string;
+  note: string;
+}
 
 function isNullPotCategory(category: Category): boolean {
   return category === 'savings' || category === 'unknown';
@@ -60,15 +73,23 @@ function EntryForm({
     selectableSources[0]?.id ??
     '';
 
-  const [direction, setDirection] = useState<'out' | 'in'>(editing?.direction ?? 'out');
-  const [amount, setAmount] = useState<number | null>(editing ? editing.amount / 100 : null);
-  const [sourceId, setSourceId] = useState<string>(defaultSourceId);
-  const [potId, setPotId] = useState<string>(editing ? (editing.potId ?? '') : (pots[0]?.id ?? ''));
-  const [category, setCategory] = useState<Category>(
-    editing?.category ?? (editing?.direction === 'in' ? 'allowance' : 'food'),
+  // Edit mode bypasses draft storage so opening an existing transaction never shows or overwrites the new-entry draft.
+  const [draft, setDraft, clearDraft] = useDraft<EntryDraftState>(
+    ENTRY_DRAFT_KEY,
+    () => ({
+      direction: editing?.direction ?? 'out',
+      amount: editing ? editing.amount / 100 : null,
+      sourceId: defaultSourceId,
+      potId: editing ? (editing.potId ?? '') : (pots[0]?.id ?? ''),
+      category: editing?.category ?? (editing?.direction === 'in' ? 'allowance' : 'food'),
+      date: editing?.date ?? today,
+      note: editing?.note ?? '',
+    }),
+    { enabled: !editing },
   );
-  const [date, setDate] = useState<string>(editing?.date ?? today);
-  const [note, setNote] = useState<string>(editing?.note ?? '');
+
+  const { direction, amount, potId, category, date, note } = draft;
+  const sourceId = selectableSources.some((s) => s.id === draft.sourceId) ? draft.sourceId : defaultSourceId;
 
   const [amountError, setAmountError] = useState<string>();
   const [dateError, setDateError] = useState<string>();
@@ -100,29 +121,36 @@ function EntryForm({
     date < latestCheck.checkedOn;
 
   const handleDirectionChange = (next: 'out' | 'in') => {
-    setDirection(next);
-    if (next === 'in') {
-      if (!IN_CATEGORIES.includes(category)) {
-        setCategory('allowance');
+    setDraft((prev) => {
+      if (next === 'in') {
+        return {
+          ...prev,
+          direction: next,
+          category: IN_CATEGORIES.includes(prev.category) ? prev.category : 'allowance',
+          potId: '',
+        };
       }
-      setPotId('');
-    } else {
-      const nextCat = OUT_CATEGORIES.includes(category) ? category : 'food';
-      setCategory(nextCat);
-      if (!editing && !isNullPotCategory(nextCat)) {
-        setPotId(pots[0]?.id ?? '');
-      }
-    }
+      const nextCat = OUT_CATEGORIES.includes(prev.category) ? prev.category : 'food';
+      return {
+        ...prev,
+        direction: next,
+        category: nextCat,
+        potId: !editing && !isNullPotCategory(nextCat) ? (pots[0]?.id ?? '') : prev.potId,
+      };
+    });
   };
 
   const handleCategoryChange = (next: Category) => {
-    setCategory(next);
-    // SPEC §6: savings and unknown transactions must have potId = null.
-    if (isNullPotCategory(next)) {
-      setPotId('');
-    } else if (!editing && !potId && direction === 'out') {
-      setPotId(pots[0]?.id ?? '');
-    }
+    setDraft((prev) => {
+      // SPEC §6: savings and unknown transactions must have potId = null.
+      if (isNullPotCategory(next)) {
+        return { ...prev, category: next, potId: '' };
+      }
+      if (!editing && !prev.potId && prev.direction === 'out') {
+        return { ...prev, category: next, potId: pots[0]?.id ?? '' };
+      }
+      return { ...prev, category: next };
+    });
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -150,6 +178,9 @@ function EntryForm({
       },
       editing?.id,
     );
+    if (!editing) {
+      clearDraft();
+    }
   };
 
   return (
@@ -161,7 +192,7 @@ function EntryForm({
         value={amount}
         error={amountError}
         onChange={(v) => {
-          setAmount(v);
+          setDraft((prev) => ({ ...prev, amount: v }));
           setAmountError(undefined);
         }}
       />
@@ -170,7 +201,7 @@ function EntryForm({
         label="ช่องทาง"
         options={sourceOptions}
         value={sourceId}
-        onChange={(e) => setSourceId(e.target.value)}
+        onChange={(e) => setDraft((prev) => ({ ...prev, sourceId: e.target.value }))}
       />
 
       {showPotSelect ? (
@@ -178,7 +209,7 @@ function EntryForm({
           label="ก้อนเงิน"
           options={potOptions}
           value={potId}
-          onChange={(e) => setPotId(e.target.value)}
+          onChange={(e) => setDraft((prev) => ({ ...prev, potId: e.target.value }))}
         />
       ) : null}
 
@@ -196,7 +227,7 @@ function EntryForm({
           value={date}
           error={dateError}
           onChange={(e) => {
-            setDate(e.target.value);
+            setDraft((prev) => ({ ...prev, date: e.target.value }));
             setDateError(undefined);
           }}
         />
@@ -211,7 +242,7 @@ function EntryForm({
         label="โน้ต"
         placeholder="เช่น กาแฟ, ค่ารถ"
         value={note}
-        onChange={(e) => setNote(e.target.value)}
+        onChange={(e) => setDraft((prev) => ({ ...prev, note: e.target.value }))}
       />
 
       <Button type="submit" variant="primary" size="lg" loading={isSubmitting}>

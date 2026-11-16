@@ -975,4 +975,41 @@ describe('<OverviewPage>', () => {
       },
     ]);
   });
+
+  it('preserves QuickAddSheet draft (typing 45+60 -> close -> reopen still visible), supports ล้างฟอร์ม, and clears draft after save (SPEC §A1)', async () => {
+    renderOverview();
+
+    // 1. Open QuickAddSheet, type 45+60 (= 105) and a note
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการ' }));
+    let dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('จำนวนเงิน'), { target: { value: '45+60' } });
+    expect(within(dialog).getByText('= ฿105.00')).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText('โน้ต (ไม่บังคับ)'), { target: { value: 'ข้าวมันไก่+ชานม' } });
+
+    // 2. Close without saving (via Escape) and reopen -> draft must still be visible
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการ' }));
+    dialog = screen.getByRole('dialog');
+    expect((within(dialog).getByLabelText('จำนวนเงิน') as HTMLInputElement).value).toMatch(/45\+60|105/);
+    expect((within(dialog).getByLabelText('โน้ต (ไม่บังคับ)') as HTMLInputElement).value).toBe('ข้าวมันไก่+ชานม');
+
+    // 3. Click "ล้างฟอร์ม" -> resets fields immediately
+    fireEvent.click(within(dialog).getByRole('button', { name: 'ล้างฟอร์ม' }));
+    expect((within(dialog).getByLabelText('จำนวนเงิน') as HTMLInputElement).value).toBe('');
+    expect((within(dialog).getByLabelText('โน้ต (ไม่บังคับ)') as HTMLInputElement).value).toBe('');
+
+    // 4. Type again, save -> clears draft for the next open
+    fireEvent.change(within(dialog).getByLabelText('จำนวนเงิน'), { target: { value: '45+60' } });
+    fireEvent.change(within(dialog).getByLabelText('โน้ต (ไม่บังคับ)'), { target: { value: 'มื้อเที่ยง' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'บันทึก' }));
+    await waitFor(() => expect(createTxSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มรายการ' }));
+    dialog = screen.getByRole('dialog');
+    expect((within(dialog).getByLabelText('จำนวนเงิน') as HTMLInputElement).value).toBe('');
+    expect((within(dialog).getByLabelText('โน้ต (ไม่บังคับ)') as HTMLInputElement).value).toBe('');
+  });
 });

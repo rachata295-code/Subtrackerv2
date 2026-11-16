@@ -9,6 +9,7 @@ import { IconButton } from '../../components/ui/IconButton';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { SelectField } from '../../components/ui/SelectField';
 import { TextField } from '../../components/ui/TextField';
+import { useDraft } from '../../hooks/useDraft';
 import { formatTHB } from '../../lib/money';
 import {
   CATEGORY_LABELS,
@@ -29,6 +30,7 @@ import {
 const NO_POT_VALUE = '__none__';
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const BEFORE_CHECK_WARNING = 'รายการนี้อยู่ก่อนเช็กยอดล่าสุด จึงไม่เปลี่ยนยอดบัญชี';
+const QUICK_ADD_DRAFT_KEY = 'quick-add';
 
 const compactBahtFormatter = new Intl.NumberFormat('th-TH', {
   numberingSystem: 'latn',
@@ -85,6 +87,15 @@ interface DraftRow {
   potValueOverride?: string;
 }
 
+interface QuickAddDraftState {
+  direction: 'out' | 'in';
+  date: string;
+  sourceId: string;
+  potValue: string;
+  rows: DraftRow[];
+  nextRowId: number;
+}
+
 function createDraftRow(id: string, overrides?: Partial<DraftRow>): DraftRow {
   return {
     id,
@@ -123,27 +134,46 @@ function QuickAddForm({
   const resolvedPrefillSource =
     prefill && sources.some((s) => s.id === prefill.sourceId) ? prefill.sourceId : (defaultSource?.id ?? '');
 
-  const nextRowIdRef = useRef(1);
   const exitTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const appliedPrefillRef = useRef<HotbarItem | null>(null);
 
-  const [direction, setDirection] = useState<'out' | 'in'>('out');
-  const [date, setDate] = useState<string>(today);
-  const [dateError, setDateError] = useState<string>();
-  const [sourceId, setSourceId] = useState<string>(resolvedPrefillSource);
-  const [potValue, setPotValue] = useState<string>(
-    prefill ? (prefill.potId ?? NO_POT_VALUE) : (defaultPotId ?? NO_POT_VALUE),
+  const makeCleanDraft = (seed?: HotbarItem | null): QuickAddDraftState => ({
+    direction: 'out',
+    date: today,
+    sourceId:
+      seed && sources.some((s) => s.id === seed.sourceId) ? seed.sourceId : (defaultSource?.id ?? ''),
+    potValue: seed ? (seed.potId ?? NO_POT_VALUE) : (defaultPotId ?? NO_POT_VALUE),
+    rows: [
+      createDraftRow('row-0', {
+        amount: seed ? seed.amount / 100 : null,
+        category: seed ? seed.category : 'food',
+        note: seed ? seed.note : '',
+      }),
+    ],
+    nextRowId: 1,
+  });
+
+  const [draft, setDraft, clearDraft] = useDraft<QuickAddDraftState>(QUICK_ADD_DRAFT_KEY, () =>
+    makeCleanDraft(prefill),
   );
-  const [rows, setRows] = useState<DraftRow[]>(() => [
-    createDraftRow('row-0', {
-      amount: prefill ? prefill.amount / 100 : null,
-      category: prefill ? prefill.category : 'food',
-      note: prefill ? prefill.note : '',
-    }),
-  ]);
+  const [resetNonce, setResetNonce] = useState(0);
+
+  const { direction, date, potValue, rows } = draft;
+  const sourceId =
+    sources.some((s) => s.id === draft.sourceId) ? draft.sourceId : resolvedPrefillSource;
+
+  const [dateError, setDateError] = useState<string>();
   const [addedRowIds, setAddedRowIds] = useState<Set<string>>(() => new Set());
   const [leavingRowIds, setLeavingRowIds] = useState<Set<string>>(() => new Set());
   const [submitError, setSubmitError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
+
+  // When opened via HotBar long-press (`prefill`), populate the draft so the chosen shortcut is shown.
+  useEffect(() => {
+    if (!prefill || appliedPrefillRef.current === prefill) return;
+    appliedPrefillRef.current = prefill;
+    setDraft(makeCleanDraft(prefill));
+  });
 
   useEffect(() => {
     const timers = exitTimersRef.current;
@@ -152,6 +182,22 @@ function QuickAddForm({
       timers.clear();
     };
   }, []);
+
+  const setDate = (next: string) => {
+    setDraft((prev) => ({ ...prev, date: next }));
+  };
+  const setSourceId = (next: string) => {
+    setDraft((prev) => ({ ...prev, sourceId: next }));
+  };
+  const setPotValue = (next: string) => {
+    setDraft((prev) => ({ ...prev, potValue: next }));
+  };
+  const setRows = (updater: DraftRow[] | ((prev: DraftRow[]) => DraftRow[])) => {
+    setDraft((prev) => ({
+      ...prev,
+      rows: typeof updater === 'function' ? updater(prev.rows) : updater,
+    }));
+  };
 
   const visibleRows = rows.filter((r) => !leavingRowIds.has(r.id));
   const categories = direction === 'out' ? OUT_CATEGORIES : IN_CATEGORIES;
@@ -166,14 +212,15 @@ function QuickAddForm({
     headerCheckedOn !== null && isValidISODate(date) && date < headerCheckedOn;
 
   const handleDirectionChange = (next: 'out' | 'in') => {
-    setDirection(next);
     const validCategories = next === 'out' ? OUT_CATEGORIES : IN_CATEGORIES;
     const fallbackCategory = validCategories[0];
-    setRows((prev) =>
-      prev.map((row) =>
+    setDraft((prev) => ({
+      ...prev,
+      direction: next,
+      rows: prev.rows.map((row) =>
         validCategories.includes(row.category) ? row : { ...row, category: fallbackCategory },
       ),
-    );
+    }));
   };
 
   const updateRow = (rowId: string, updater: (row: DraftRow) => DraftRow) => {
@@ -182,14 +229,18 @@ function QuickAddForm({
   };
 
   const handleAddRow = () => {
-    const id = `row-${nextRowIdRef.current++}`;
+    const id = `row-${draft.nextRowId}`;
     setAddedRowIds((prev) => new Set(prev).add(id));
-    setRows((prev) => [
+    setDraft((prev) => ({
       ...prev,
-      createDraftRow(id, {
-        category: direction === 'out' ? 'food' : 'allowance',
-      }),
-    ]);
+      nextRowId: prev.nextRowId + 1,
+      rows: [
+        ...prev.rows,
+        createDraftRow(`row-${prev.nextRowId}`, {
+          category: prev.direction === 'out' ? 'food' : 'allowance',
+        }),
+      ],
+    }));
   };
 
   const handleRemoveRow = (rowId: string) => {
@@ -207,36 +258,63 @@ function QuickAddForm({
     exitTimersRef.current.set(rowId, timer);
   };
 
-  const handlePrefillFromHotbar = (item: HotbarItem) => {
-    setDirection('out');
-    if (sources.some((s) => s.id === item.sourceId)) {
-      setSourceId(item.sourceId);
-    }
-    setPotValue(item.potId ?? NO_POT_VALUE);
+  const handleClearForm = () => {
+    for (const timer of exitTimersRef.current.values()) clearTimeout(timer);
+    exitTimersRef.current.clear();
+    setLeavingRowIds(new Set());
+    setAddedRowIds(new Set());
+    setDateError(undefined);
     setSubmitError(undefined);
+    clearDraft();
+    setDraft(makeCleanDraft(null));
+    clearDraft();
+    setResetNonce((n) => n + 1);
+  };
+
+  const handlePrefillFromHotbar = (item: HotbarItem) => {
+    setSubmitError(undefined);
+    const nextSourceId = sources.some((s) => s.id === item.sourceId) ? item.sourceId : sourceId;
+    const nextPotValue = item.potId ?? NO_POT_VALUE;
 
     const first = visibleRows[0];
     if (first && first.amount === null && first.note.trim() === '') {
-      updateRow(first.id, (r) => ({
-        ...r,
-        amount: item.amount / 100,
-        category: item.category,
-        note: item.note,
-        amountError: undefined,
+      setDraft((prev) => ({
+        ...prev,
+        direction: 'out',
+        sourceId: nextSourceId,
+        potValue: nextPotValue,
+        rows: prev.rows.map((r) =>
+          r.id === first.id
+            ? {
+                ...r,
+                amount: item.amount / 100,
+                category: item.category,
+                note: item.note,
+                amountError: undefined,
+              }
+            : r,
+        ),
       }));
       return;
     }
 
-    const id = `row-${nextRowIdRef.current++}`;
+    const id = `row-${draft.nextRowId}`;
     setAddedRowIds((prev) => new Set(prev).add(id));
-    setRows((prev) => [
+    setDraft((prev) => ({
       ...prev,
-      createDraftRow(id, {
-        amount: item.amount / 100,
-        category: item.category,
-        note: item.note,
-      }),
-    ]);
+      direction: 'out',
+      sourceId: nextSourceId,
+      potValue: nextPotValue,
+      nextRowId: prev.nextRowId + 1,
+      rows: [
+        ...prev.rows,
+        createDraftRow(`row-${prev.nextRowId}`, {
+          amount: item.amount / 100,
+          category: item.category,
+          note: item.note,
+        }),
+      ],
+    }));
   };
 
   const totalSatang = visibleRows.reduce((sum, row) => {
@@ -310,6 +388,7 @@ function QuickAddForm({
     setSubmitError(undefined);
     try {
       await onSubmit(inputs);
+      clearDraft();
     } catch {
       setSubmitError('บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
       setSubmitting(false);
@@ -441,6 +520,7 @@ function QuickAddForm({
               ) : null}
 
               <CurrencyField
+                key={`${row.id}-${resetNonce}`}
                 label="จำนวนเงิน"
                 value={row.amount}
                 error={row.amountError}
@@ -569,9 +649,14 @@ function QuickAddForm({
         })}
       </div>
 
-      <Button type="button" variant="secondary" onClick={handleAddRow}>
-        + เพิ่มอีกรายการ
-      </Button>
+      <div className="flex items-center justify-between gap-2">
+        <Button type="button" variant="secondary" className="flex-1" onClick={handleAddRow}>
+          + เพิ่มอีกรายการ
+        </Button>
+        <Button type="button" variant="ghost" onClick={handleClearForm}>
+          ล้างฟอร์ม
+        </Button>
+      </div>
 
       {submitError ? (
         <p className="text-sm text-negative" role="alert">

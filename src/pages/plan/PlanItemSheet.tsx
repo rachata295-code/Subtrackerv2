@@ -6,6 +6,7 @@ import { HoldToDelete } from '../../components/ui/HoldToDelete';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { SelectField } from '../../components/ui/SelectField';
 import { TextField } from '../../components/ui/TextField';
+import { useDraft } from '../../hooks/useDraft';
 import {
   CATEGORY_LABELS,
   OUT_CATEGORIES,
@@ -30,12 +31,23 @@ export interface PlanItemSheetProps {
   onDelete: (id: string) => Promise<void>;
 }
 
+const PLAN_ITEM_DRAFT_KEY = 'plan-item';
+
 const KIND_OPTIONS: { value: 'pay' | 'save'; label: string }[] = [
   { value: 'pay', label: 'ต้องจ่าย' },
   { value: 'save', label: 'เก็บเงิน' },
 ];
 
 const PLAN_PAY_CATEGORIES = OUT_CATEGORIES.filter((c) => c !== 'savings' && c !== 'unknown');
+
+interface PlanItemDraftState {
+  kind: 'pay' | 'save';
+  name: string;
+  amountBaht: number | null;
+  sourceId: string;
+  category: Category;
+  dueOn: string;
+}
 
 function PlanItemForm({
   data,
@@ -49,15 +61,23 @@ function PlanItemForm({
   // SPEC §5 C5: PlanItems may only use bank accounts (credit cards / paylater are billed automatically).
   const bankSources = data.sources.filter((s) => s.kind === 'bank' && (!s.archived || s.id === editing?.sourceId));
   const sourceOptions = bankSources.map((s) => ({ value: s.id, label: s.name }));
+  const fallbackSourceId = editing?.sourceId ?? defaultSourceId ?? bankSources[0]?.id ?? '';
 
-  const [kind, setKind] = useState<'pay' | 'save'>(editing?.kind ?? 'pay');
-  const [name, setName] = useState(editing?.name ?? '');
-  const [amountBaht, setAmountBaht] = useState<number | null>(editing ? editing.amount / 100 : null);
-  const [sourceId, setSourceId] = useState<string>(editing?.sourceId ?? defaultSourceId ?? bankSources[0]?.id ?? '');
-  const [category, setCategory] = useState<Category>(
-    editing?.kind === 'pay' ? editing.category : 'bills',
+  const [draft, setDraft, clearDraft] = useDraft<PlanItemDraftState>(
+    PLAN_ITEM_DRAFT_KEY,
+    () => ({
+      kind: editing?.kind ?? 'pay',
+      name: editing?.name ?? '',
+      amountBaht: editing ? editing.amount / 100 : null,
+      sourceId: fallbackSourceId,
+      category: editing?.kind === 'pay' ? editing.category : 'bills',
+      dueOn: editing?.dueOn ?? '',
+    }),
+    { enabled: !editing },
   );
-  const [dueOn, setDueOn] = useState<string>(editing?.dueOn ?? '');
+
+  const { kind, name, amountBaht, category, dueOn } = draft;
+  const sourceId = bankSources.some((s) => s.id === draft.sourceId) ? draft.sourceId : fallbackSourceId;
 
   const [nameError, setNameError] = useState<string>();
   const [amountError, setAmountError] = useState<string>();
@@ -101,11 +121,19 @@ function PlanItemForm({
       dueOn: resolvedDue,
       category: kind === 'save' ? 'savings' : category,
     });
+    if (!editing) {
+      clearDraft();
+    }
   };
 
   return (
     <form noValidate className="flex flex-col gap-4 pb-2" onSubmit={(e) => void handleSubmit(e)}>
-      <SegmentedControl label="ประเภทแผน" options={KIND_OPTIONS} value={kind} onChange={setKind} />
+      <SegmentedControl
+        label="ประเภทแผน"
+        options={KIND_OPTIONS}
+        value={kind}
+        onChange={(next) => setDraft((prev) => ({ ...prev, kind: next }))}
+      />
 
       <div>
         <TextField
@@ -114,7 +142,7 @@ function PlanItemForm({
           value={name}
           error={nameError}
           onChange={(e) => {
-            setName(e.target.value);
+            setDraft((prev) => ({ ...prev, name: e.target.value }));
             setNameError(undefined);
           }}
         />
@@ -130,7 +158,7 @@ function PlanItemForm({
         value={amountBaht}
         error={amountError}
         onChange={(v) => {
-          setAmountBaht(v);
+          setDraft((prev) => ({ ...prev, amountBaht: v }));
           setAmountError(undefined);
         }}
       />
@@ -139,7 +167,7 @@ function PlanItemForm({
         label="จากบัญชี"
         options={sourceOptions}
         value={sourceId}
-        onChange={(e) => setSourceId(e.target.value)}
+        onChange={(e) => setDraft((prev) => ({ ...prev, sourceId: e.target.value }))}
       />
 
       {kind === 'pay' ? (
@@ -153,7 +181,7 @@ function PlanItemForm({
                   key={cat}
                   type="button"
                   aria-pressed={selected}
-                  onClick={() => setCategory(cat)}
+                  onClick={() => setDraft((prev) => ({ ...prev, category: cat }))}
                   className={[
                     'pressable min-h-tap rounded-pill px-3 text-sm font-medium',
                     'focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2',
@@ -174,7 +202,7 @@ function PlanItemForm({
         value={dueOn}
         error={dueOnError}
         onChange={(e) => {
-          setDueOn(e.target.value);
+          setDraft((prev) => ({ ...prev, dueOn: e.target.value }));
           setDueOnError(undefined);
         }}
       />

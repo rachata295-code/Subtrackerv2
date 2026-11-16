@@ -6,6 +6,7 @@ import { HoldToDelete } from '../../components/ui/HoldToDelete';
 import { SelectField } from '../../components/ui/SelectField';
 import { Switch } from '../../components/ui/Switch';
 import { TextField } from '../../components/ui/TextField';
+import { useDraft } from '../../hooks/useDraft';
 import type { FinanceData, RecurringIncome, UpsertRecurringIncomeInput } from '../../types/finance';
 import { parseDayOfMonth } from './settingsUtils';
 
@@ -19,6 +20,16 @@ export interface RecurringIncomeSheetProps {
   isSubmitting?: boolean;
 }
 
+const RECURRING_INCOME_DRAFT_KEY = 'recurring-income';
+
+interface RecurringIncomeDraftState {
+  name: string;
+  amountBaht: number | null;
+  dayText: string;
+  sourceId: string;
+  active: boolean;
+}
+
 function RecurringIncomeForm({
   data,
   editing,
@@ -30,12 +41,22 @@ function RecurringIncomeForm({
     (s) => s.kind === 'bank' && (!s.archived || s.id === editing?.sourceId),
   );
   const sourceOptions = bankSources.map((s) => ({ value: s.id, label: s.name }));
+  const fallbackSourceId = editing?.sourceId ?? bankSources[0]?.id ?? '';
 
-  const [name, setName] = useState(editing?.name ?? '');
-  const [amountBaht, setAmountBaht] = useState<number | null>(editing ? editing.amount / 100 : null);
-  const [dayText, setDayText] = useState(editing ? String(editing.dayOfMonth) : '');
-  const [sourceId, setSourceId] = useState(editing?.sourceId ?? bankSources[0]?.id ?? '');
-  const [active, setActive] = useState(editing?.active ?? true);
+  const [draft, setDraft, clearDraft] = useDraft<RecurringIncomeDraftState>(
+    RECURRING_INCOME_DRAFT_KEY,
+    () => ({
+      name: editing?.name ?? '',
+      amountBaht: editing ? editing.amount / 100 : null,
+      dayText: editing ? String(editing.dayOfMonth) : '',
+      sourceId: fallbackSourceId,
+      active: editing?.active ?? true,
+    }),
+    { enabled: !editing },
+  );
+
+  const { name, amountBaht, dayText, active } = draft;
+  const sourceId = bankSources.some((s) => s.id === draft.sourceId) ? draft.sourceId : fallbackSourceId;
 
   const [nameError, setNameError] = useState<string>();
   const [amountError, setAmountError] = useState<string>();
@@ -73,6 +94,9 @@ function RecurringIncomeForm({
       sourceId,
       active,
     });
+    if (!editing) {
+      clearDraft();
+    }
   };
 
   return (
@@ -83,7 +107,7 @@ function RecurringIncomeForm({
         value={name}
         error={nameError}
         onChange={(e) => {
-          setName(e.target.value);
+          setDraft((prev) => ({ ...prev, name: e.target.value }));
           setNameError(undefined);
         }}
       />
@@ -93,7 +117,7 @@ function RecurringIncomeForm({
         value={amountBaht}
         error={amountError}
         onChange={(v) => {
-          setAmountBaht(v);
+          setDraft((prev) => ({ ...prev, amountBaht: v }));
           setAmountError(undefined);
         }}
       />
@@ -105,7 +129,7 @@ function RecurringIncomeForm({
         value={dayText}
         error={dayError}
         onChange={(e) => {
-          setDayText(e.target.value);
+          setDraft((prev) => ({ ...prev, dayText: e.target.value }));
           setDayError(undefined);
         }}
       />
@@ -114,10 +138,14 @@ function RecurringIncomeForm({
         label="เข้าบัญชี"
         options={sourceOptions}
         value={sourceId}
-        onChange={(e) => setSourceId(e.target.value)}
+        onChange={(e) => setDraft((prev) => ({ ...prev, sourceId: e.target.value }))}
       />
 
-      <Switch label="เปิดใช้งาน" checked={active} onChange={setActive} />
+      <Switch
+        label="เปิดใช้งาน"
+        checked={active}
+        onChange={(checked) => setDraft((prev) => ({ ...prev, active: checked }))}
+      />
 
       <Button type="submit" variant="primary" size="lg" loading={isSubmitting} disabled={sourceOptions.length === 0}>
         บันทึก

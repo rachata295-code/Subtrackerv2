@@ -7,6 +7,7 @@ import { HoldToDelete } from '../../components/ui/HoldToDelete';
 import { Switch } from '../../components/ui/Switch';
 import { TextField } from '../../components/ui/TextField';
 import { notify } from '../../components/ui/Toaster';
+import { useDraft } from '../../hooks/useDraft';
 import { useDeleteInstallment, useUpsertInstallment } from '../../hooks/useFinance';
 import type { FinanceData, ISODate, Installment } from '../../types/finance';
 import { SelectField } from '../../components/ui/SelectField';
@@ -28,12 +29,23 @@ export interface InstallmentSheetProps {
   initial?: Installment;
 }
 
+const INSTALLMENT_DRAFT_KEY = 'installment';
+
 interface FormErrors {
   name?: string;
   amount?: string;
   count?: string;
   firstChargeDate?: string;
   sourceId?: string;
+}
+
+interface InstallmentDraftState {
+  name: string;
+  amount: number | null;
+  countText: string;
+  firstChargeDate: string;
+  sourceId: string;
+  countInPlayPot: boolean;
 }
 
 function defaultSourceId(data: FinanceData, initial?: Installment): string {
@@ -61,15 +73,22 @@ function InstallmentForm({
   const upsertInstallment = useUpsertInstallment();
   const deleteInstallment = useDeleteInstallment();
   const playPot = resolvePlayPot(data.pots);
+  const fallbackSourceId = defaultSourceId(data, initial);
 
-  const [name, setName] = useState(initial?.name ?? '');
-  const [amount, setAmount] = useState<number | null>(
-    initial ? satangToBaht(initial.perInstallment) : null,
+  const [draft, setDraft, clearDraft] = useDraft<InstallmentDraftState>(
+    INSTALLMENT_DRAFT_KEY,
+    () => ({
+      name: initial?.name ?? '',
+      amount: initial ? satangToBaht(initial.perInstallment) : null,
+      countText: initial ? String(initial.count) : '',
+      firstChargeDate: initial?.firstChargeDate ?? today,
+      sourceId: fallbackSourceId,
+      countInPlayPot: initial ? initial.potId !== null : true,
+    }),
+    { enabled: !initial },
   );
-  const [countText, setCountText] = useState(initial ? String(initial.count) : '');
-  const [firstChargeDate, setFirstChargeDate] = useState(initial?.firstChargeDate ?? today);
-  const [sourceId, setSourceId] = useState(() => defaultSourceId(data, initial));
-  const [countInPlayPot, setCountInPlayPot] = useState(initial ? initial.potId !== null : true);
+
+  const { name, amount, countText, firstChargeDate, countInPlayPot } = draft;
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
 
@@ -80,6 +99,10 @@ function InstallmentForm({
         .map((s) => ({ value: s.id, label: s.name })),
     [data.sources, initial?.sourceId],
   );
+
+  const sourceId = sourceOptions.some((o) => o.value === draft.sourceId)
+    ? draft.sourceId
+    : fallbackSourceId;
 
   const parsedCount = /^\d+$/.test(countText.trim()) ? Number(countText.trim()) : NaN;
   const resolvedPotId = countInPlayPot ? (playPot?.id ?? null) : null;
@@ -130,6 +153,9 @@ function InstallmentForm({
         sourceId,
         potId: resolvedPotId,
       });
+      if (!initial) {
+        clearDraft();
+      }
       onClose();
       if (initial) {
         notify('แก้ไขรายการผ่อนแล้ว', {
@@ -185,7 +211,7 @@ function InstallmentForm({
         value={name}
         error={errors.name}
         onChange={(e) => {
-          setName(e.target.value);
+          setDraft((prev) => ({ ...prev, name: e.target.value }));
           setErrors((prev) => ({ ...prev, name: undefined }));
         }}
       />
@@ -195,7 +221,7 @@ function InstallmentForm({
         value={amount}
         error={errors.amount}
         onChange={(v) => {
-          setAmount(v);
+          setDraft((prev) => ({ ...prev, amount: v }));
           setErrors((prev) => ({ ...prev, amount: undefined }));
         }}
       />
@@ -207,7 +233,7 @@ function InstallmentForm({
         value={countText}
         error={errors.count}
         onChange={(e) => {
-          setCountText(e.target.value);
+          setDraft((prev) => ({ ...prev, countText: e.target.value }));
           setErrors((prev) => ({ ...prev, count: undefined }));
         }}
       />
@@ -218,7 +244,7 @@ function InstallmentForm({
         value={firstChargeDate}
         error={errors.firstChargeDate}
         onChange={(e) => {
-          setFirstChargeDate(e.target.value);
+          setDraft((prev) => ({ ...prev, firstChargeDate: e.target.value }));
           setErrors((prev) => ({ ...prev, firstChargeDate: undefined }));
         }}
       />
@@ -229,7 +255,7 @@ function InstallmentForm({
         value={sourceId}
         error={errors.sourceId}
         onChange={(e) => {
-          setSourceId(e.target.value);
+          setDraft((prev) => ({ ...prev, sourceId: e.target.value }));
           setErrors((prev) => ({ ...prev, sourceId: undefined }));
         }}
       />
@@ -238,7 +264,7 @@ function InstallmentForm({
         label="นับรวมในวงเงินใช้ตามใจ"
         checked={countInPlayPot}
         disabled={!playPot}
-        onChange={setCountInPlayPot}
+        onChange={(checked) => setDraft((prev) => ({ ...prev, countInPlayPot: checked }))}
       />
 
       {firstOver && playPot ? (
@@ -277,7 +303,6 @@ export function InstallmentSheet({ open, onOpenChange, data, today, initial }: I
       onOpenChange={onOpenChange}
       title={initial ? 'แก้ไขรายการผ่อน' : 'เพิ่มรายการผ่อน'}
     >
-      {/* Mount form only while open so inputs and validation reset cleanly on every open. */}
       {open ? (
         <InstallmentForm
           key={initial?.id ?? 'new'}
