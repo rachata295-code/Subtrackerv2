@@ -536,6 +536,7 @@ export default function EntriesPage({ today: todayProp }: EntriesPageProps) {
             onOpenChange={setSheetOpen}
             sources={data.sources}
             pots={data.pots}
+            balanceChecks={data.balanceChecks}
             today={today}
             editing={editing}
             onSave={handleSave}
